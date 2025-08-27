@@ -107,6 +107,92 @@ class EnvironmentManager:
             self.logger.error(f"Unexpected error running command: {e}")
             raise
     
+    def _run_command_with_progress(self, cmd: List[str], operation_name: str = "Operation"):
+        """
+        Run a command with real-time progress output for long operations
+        
+        Args:
+            cmd: Command to run as list of strings
+            operation_name: Name of the operation for progress messages
+            
+        Returns:
+            CompletedProcess-like object with combined stdout/stderr
+        """
+        try:
+            self.logger.debug(f"Running command with progress: {' '.join(cmd)}")
+            print(f"🔄 {operation_name} in progress...")
+            
+            # Start the process
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,  # Combine stderr with stdout
+                text=True,
+                bufsize=1,  # Line buffered
+                universal_newlines=True
+            )
+            
+            output_lines = []
+            last_progress_time = 0
+            import time
+            
+            # Read output line by line
+            while True:
+                if process.stdout:
+                    line = process.stdout.readline()
+                    if line:
+                        output_lines.append(line.rstrip())
+                        current_time = time.time()
+                        
+                        # Show progress every 2 seconds or for important lines
+                        if (current_time - last_progress_time > 2.0 or 
+                            any(keyword in line.lower() for keyword in ['solving', 'downloading', 'extracting', 'installing', 'collecting', 'preparing', 'executing', 'verifying'])):
+                            
+                            # Clean and show the progress line
+                            clean_line = line.strip()
+                            if clean_line and not clean_line.startswith('#'):
+                                # Make certain progress lines more prominent
+                                if any(keyword in clean_line.lower() for keyword in ['solving environment', 'downloading and extracting', 'preparing transaction', 'executing transaction']):
+                                    print(f"📦 {clean_line}")
+                                elif 'done' in clean_line.lower():
+                                    print(f"✓  {clean_line}")
+                                else:
+                                    print(f"   {clean_line}")
+                                last_progress_time = current_time
+                
+                # Check if process has finished
+                if process.poll() is not None:
+                    break
+            
+            # Wait for process to complete and get return code
+            return_code = process.wait()
+            
+            # Create a result object similar to subprocess.run
+            combined_output = '\n'.join(output_lines)
+            
+            # Create a simple result object
+            class ProcessResult:
+                def __init__(self, returncode: int, stdout: str, stderr: str = ""):
+                    self.returncode = returncode
+                    self.stdout = stdout
+                    self.stderr = stderr
+            
+            result = ProcessResult(return_code, combined_output)
+            
+            if return_code == 0:
+                print(f"✅ {operation_name} completed successfully!")
+            else:
+                print(f"❌ {operation_name} failed with exit code {return_code}")
+                self.logger.error(f"Command failed: {' '.join(cmd)}")
+                self.logger.error(f"Output: {combined_output}")
+            
+            return result
+            
+        except Exception as e:
+            print(f"❌ {operation_name} failed with error: {e}")
+            self.logger.error(f"Unexpected error running command: {e}")
+            raise
+    
     def list_environments(self) -> List[Dict[str, str]]:
         """
         List all available environments with their details
@@ -923,7 +1009,9 @@ class EnvironmentManager:
             self._update_yaml_name(yaml_file, new_name)
             
             cmd = [self.cmd_base, "env", "create", "-f", str(yaml_file), "-n", new_name]
-            result = self._run_command(cmd)
+            
+            # Use progress version for environment creation (it's slow)
+            result = self._run_command_with_progress(cmd, f"Creating environment '{new_name}'")
             
             if result.returncode == 0:
                 self.logger.info(f"Successfully created environment {new_name}")
@@ -1004,7 +1092,9 @@ class EnvironmentManager:
         """
         try:
             cmd = [self.cmd_base, "env", "remove", "-n", env_name, "--yes"]
-            result = self._run_command(cmd)
+            
+            # Use progress version for environment removal (can be slow for large environments)
+            result = self._run_command_with_progress(cmd, f"Removing environment '{env_name}'")
             
             if result.returncode == 0:
                 self.logger.info(f"Successfully removed environment {env_name}")
@@ -1084,14 +1174,40 @@ class EnvironmentManager:
             self.logger.info(f"Cleaned base name: {env_name} -> {cleaned_base}")
         
         # Show package versions if detected
-        if yaml_file:
+        package_count = 0
+        if yaml_file and isinstance(yaml_file, Path):
             package_versions = self._extract_package_versions_from_yaml(yaml_file, env_name)
             if package_versions:
                 pkg_info = ', '.join([f"{pkg}={ver}" for pkg, ver in package_versions.items()])
                 self.logger.info(f"Detected packages: {pkg_info}")
+            
+            # Count total packages in YAML for progress context
+            try:
+                import yaml
+                with open(yaml_file, 'r') as f:
+                    yaml_data = yaml.safe_load(f)
+                dependencies = yaml_data.get('dependencies', [])
+                
+                conda_packages = 0
+                pip_packages = 0
+                
+                for dep in dependencies:
+                    if isinstance(dep, str):
+                        conda_packages += 1
+                    elif isinstance(dep, dict) and 'pip' in dep:
+                        pip_packages += len(dep.get('pip', []))
+                
+                package_count = conda_packages + pip_packages
+                self.logger.info(f"Environment contains {conda_packages} conda packages" + 
+                               (f" and {pip_packages} pip packages" if pip_packages > 0 else ""))
+            except:
+                pass
         
         # Step 3: Create new environment
-        self.logger.info(f"{Fore.YELLOW}Step 2: Creating new environment...{Style.RESET_ALL}")
+        step_info = f"Step 2: Creating new environment"
+        if package_count > 0:
+            step_info += f" ({package_count} packages)"
+        self.logger.info(f"{Fore.YELLOW}{step_info}...{Style.RESET_ALL}")
         if not self.create_environment_from_yaml(yaml_file, new_name):
             self.logger.error(f"Failed to create new environment {new_name}")
             return False
