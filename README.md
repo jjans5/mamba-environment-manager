@@ -21,8 +21,10 @@ python environment_manager.py
 ```
 This mode allows you to:
 - View all environments with their current and proposed new names
+- **Preview changes** before processing (no modifications made)
 - Choose to process all environments or select specific ones
 - See real-time progress and results
+- Review smart naming decisions and conflict resolutions
 
 ### Batch Mode (All Environments)
 ```bash
@@ -32,21 +34,39 @@ Processes all environments automatically after confirmation.
 
 ### Test Mode
 ```bash
-python test_manager.py
+python test_manager.py          # Basic functionality test
+python test_smart_naming.py     # Test smart naming with real patterns
 ```
 Tests the functionality without making any changes.
 
 ## Environment Naming Convention
 
-The tool renames environments using this pattern:
-- Original: `MyEnvironment` → New: `myenvironment_py39`
-- Original: `DataScience` → New: `datascience_py311_r41`
+The tool uses **intelligent naming** that handles existing version patterns gracefully:
 
-Rules:
-- Convert to lowercase
-- Add Python version suffix: `_py39`, `_py311`, etc.
-- Add R version suffix if R is installed: `_r41`, `r42`, etc.
-- Remove dots from version numbers
+### Smart Cleaning Examples:
+- `py_jjans_3.10` → `py_jjans_py310` (removes old version, adds new format)
+- `R_jjans_4.2_cistopic` → `r_jjans_cistopic_r42` (cleans and standardizes)
+- `neuronchat_r405` → `neuronchat_py310_r40` (detects existing R version)
+- `scenicplus_v102` → `scenicplus_py311` (removes version suffix)
+- `conda_DL` → `conda_dl_py39` (simple case conversion)
+
+### Naming Rules:
+1. **Convert to lowercase**: `MyEnvironment` → `myenvironment`
+2. **Clean existing versions**: Removes patterns like `_py3.10`, `_r4.2`, `_v102`
+3. **Add standardized versions**: `_py310`, `_r42` format
+4. **Resolve conflicts**: Adds `_v1`, `_v2` suffixes when needed
+5. **Preserve meaningful names**: Keeps descriptive parts intact
+
+### Pattern Detection:
+The tool automatically detects and handles:
+- Python versions: `py3.10`, `python3.10`, `_py310`, `py_3.10`
+- R versions: `r4.2`, `_r42`, `r_4.2`, `_r_4.2`
+- Version suffixes: `_v1`, `_v102`, `_version2`
+
+### Conflict Resolution:
+- If `myenv_py39` already exists, new environment becomes `myenv_py39_v1`
+- Sequential numbering prevents overwrites
+- Safe processing ensures no data loss
 
 ## Requirements
 
