@@ -424,11 +424,44 @@ class EnvironmentManager:
                     relevant_packages.update(packages)
             
             # Also check for package names directly mentioned in env name
+            # This catches cases where the package name is in the environment name
             for dep in dependencies:
                 if isinstance(dep, str):
                     pkg_name = dep.split('=')[0].split('[')[0].strip()
-                    if any(pkg in env_name_lower for pkg in [pkg_name.lower()]):
+                    # Add package if it's mentioned in environment name OR if it's a key package
+                    if (any(pkg in env_name_lower for pkg in [pkg_name.lower()]) or 
+                        pkg_name.lower() in [p.lower() for p in relevant_packages]):
                         relevant_packages.add(pkg_name)
+                elif isinstance(dep, dict) and 'pip' in dep:
+                    # Handle pip dependencies
+                    pip_deps = dep['pip']
+                    for pip_dep in pip_deps:
+                        if isinstance(pip_dep, str):
+                            pkg_name = re.split(r'[=><]', pip_dep)[0].strip()
+                            if (any(pkg in env_name_lower for pkg in [pkg_name.lower()]) or 
+                                pkg_name.lower() in [p.lower() for p in relevant_packages]):
+                                relevant_packages.add(pkg_name)
+            
+            # If no relevant packages found from name matching, check for any key packages in dependencies
+            # This helps with generic environment names like "data_analysis"
+            if not relevant_packages:
+                all_package_names = set()
+                for dep in dependencies:
+                    if isinstance(dep, str):
+                        pkg_name = dep.split('=')[0].split('[')[0].strip()
+                        all_package_names.add(pkg_name.lower())
+                    elif isinstance(dep, dict) and 'pip' in dep:
+                        pip_deps = dep['pip']
+                        for pip_dep in pip_deps:
+                            if isinstance(pip_dep, str):
+                                pkg_name = re.split(r'[=><]', pip_dep)[0].strip()
+                                all_package_names.add(pkg_name.lower())
+                
+                # Add any key packages that are present
+                for key_pkg_list in package_mappings.values():
+                    for key_pkg in key_pkg_list:
+                        if key_pkg.lower() in all_package_names:
+                            relevant_packages.add(key_pkg)
             
             # Extract versions for relevant packages
             for dep in dependencies:
@@ -440,8 +473,8 @@ class EnvironmentManager:
                         version = parts[1].strip()
                         
                         if pkg_name.lower() in [p.lower() for p in relevant_packages]:
-                            # Clean version (remove build info)
-                            clean_version = re.sub(r'^(\d+\.\d+).*', r'\1', version)
+                            # Clean version - keep up to 3 parts (major.minor.patch)
+                            clean_version = version
                             package_versions[pkg_name.lower()] = clean_version
                 
                 elif isinstance(dep, dict) and 'pip' in dep:
@@ -455,7 +488,8 @@ class EnvironmentManager:
                                 pkg_name, version = match.groups()
                                 pkg_name = pkg_name.strip()
                                 if pkg_name.lower() in [p.lower() for p in relevant_packages]:
-                                    clean_version = re.sub(r'^(\d+\.\d+).*', r'\1', version)
+                                    # Keep full version for pip packages too
+                                    clean_version = version
                                     package_versions[pkg_name.lower()] = clean_version
             
             return package_versions
@@ -482,11 +516,41 @@ class EnvironmentManager:
         sorted_packages = sorted(package_versions.items())
         
         # Add up to 2 most relevant package versions to avoid overly long names
+        # But skip packages that are already mentioned in the base name
         added_versions = []
         for pkg_name, version in sorted_packages[:2]:
-            # Clean version to major.minor
-            clean_version = re.sub(r'^(\d+\.\d+).*', r'\1', version)
-            version_suffix = f"{pkg_name}{clean_version.replace('.', '')}"
+            # Check if package name (or similar) is already in the base name
+            # Handle cases like: scanpy vs scanpy_analysis, harmony vs harmonypy
+            pkg_variations = [
+                pkg_name.lower(),
+                pkg_name.lower().replace('py', ''),  # harmonypy → harmony
+                pkg_name.lower().replace('r-', ''),   # r-seurat → seurat
+                pkg_name.lower().split('-')[0],       # sci-kit-learn → sci
+            ]
+            
+            # Check if any variation is in the base name
+            skip_package = False
+            for variation in pkg_variations:
+                if variation in base_name.lower() and len(variation) > 2:  # Avoid single letters
+                    self.logger.debug(f"Skipping {pkg_name} - variation '{variation}' found in base name: {base_name}")
+                    skip_package = True
+                    break
+            
+            if skip_package:
+                continue
+                
+            # Clean version to support up to 3 digits (e.g., 1.9.1 → 191)
+            version_parts = version.split('.')
+            if len(version_parts) >= 3:
+                clean_version = f"{version_parts[0]}{version_parts[1]}{version_parts[2]}"
+            elif len(version_parts) == 2:
+                clean_version = f"{version_parts[0]}{version_parts[1]}"
+            else:
+                clean_version = version_parts[0] if version_parts else "0"
+            
+            # Remove any non-digit characters
+            clean_version = re.sub(r'[^\d]', '', clean_version)
+            version_suffix = f"{pkg_name}{clean_version}"
             added_versions.append(version_suffix)
         
         if added_versions:
