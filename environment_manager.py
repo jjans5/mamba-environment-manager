@@ -592,14 +592,23 @@ class EnvironmentManager:
                         for pip_dep in pip_deps:
                             if isinstance(pip_dep, str):
                                 # Handle pip format: package==version or package>=version
-                                match = re.match(r'([^=><]+)[=><]+([0-9.]+)', pip_dep)
+                                # Updated regex to capture full version including alpha/beta/dev suffixes
+                                match = re.match(r'([^=><]+)[=><]+(.+)', pip_dep)
                                 if match:
                                     pkg_name, version = match.groups()
                                     pkg_name = pkg_name.strip()
+                                    version = version.strip()
+                                    
+                                    # Check if package matches relevant packages (handle case sensitivity)
+                                    pkg_matches_relevant = False
+                                    
+                                    # Direct match
                                     if pkg_name.lower() in [p.lower() for p in relevant_packages]:
-                                        # Keep full version for pip packages too
-                                        clean_version = version
-                                        package_versions[pkg_name.lower()] = clean_version
+                                        pkg_matches_relevant = True
+                                    
+                                    if pkg_matches_relevant:
+                                        # Store using lowercase package name for consistency
+                                        package_versions[pkg_name.lower()] = version
             
             return package_versions
             
@@ -652,16 +661,35 @@ class EnvironmentManager:
                 continue
                 
             # Clean version to support up to 3 digits (e.g., 1.9.1 → 191)
-            version_parts = version.split('.')
-            if len(version_parts) >= 3:
-                clean_version = f"{version_parts[0]}{version_parts[1]}{version_parts[2]}"
-            elif len(version_parts) == 2:
-                clean_version = f"{version_parts[0]}{version_parts[1]}"
+            # Handle alpha/beta versions (e.g., 2.0a0 → 200a0)
+            if 'a' in version or 'b' in version or 'rc' in version or 'dev' in version:
+                # For alpha/beta versions, preserve the suffix
+                # Split at alpha/beta marker
+                version_match = re.match(r'([0-9.]+)([a-zA-Z]+[0-9]*)', version)
+                if version_match:
+                    numeric_part, suffix = version_match.groups()
+                    version_parts = numeric_part.split('.')
+                    if len(version_parts) >= 3:
+                        clean_version = f"{version_parts[0]}{version_parts[1]}{version_parts[2]}{suffix}"
+                    elif len(version_parts) == 2:
+                        clean_version = f"{version_parts[0]}{version_parts[1]}{suffix}"
+                    else:
+                        clean_version = f"{version_parts[0]}{suffix}" if version_parts else f"0{suffix}"
+                else:
+                    # Fallback to removing only dots for alpha versions
+                    clean_version = version.replace('.', '')
             else:
-                clean_version = version_parts[0] if version_parts else "0"
-            
-            # Remove any non-digit characters
-            clean_version = re.sub(r'[^\d]', '', clean_version)
+                # Regular version handling
+                version_parts = version.split('.')
+                if len(version_parts) >= 3:
+                    clean_version = f"{version_parts[0]}{version_parts[1]}{version_parts[2]}"
+                elif len(version_parts) == 2:
+                    clean_version = f"{version_parts[0]}{version_parts[1]}"
+                else:
+                    clean_version = version_parts[0] if version_parts else "0"
+                
+                # Remove any non-digit characters for regular versions
+                clean_version = re.sub(r'[^\d]', '', clean_version)
             version_suffix = f"{pkg_name}{clean_version}"
             added_versions.append(version_suffix)
         
