@@ -34,34 +34,50 @@ Processes all environments automatically after confirmation.
 
 ### Test Mode
 ```bash
-python test_manager.py          # Basic functionality test
-python test_smart_naming.py     # Test smart naming with real patterns
+python test_manager.py             # Basic functionality test
+python test_smart_naming.py        # Test smart naming with real patterns  
+python test_package_detection.py   # Test package version detection
 ```
 Tests the functionality without making any changes.
 
 ## Environment Naming Convention
 
-The tool uses **intelligent naming** that handles existing version patterns gracefully:
+The tool uses **intelligent naming** that handles existing version patterns gracefully and includes key package versions:
 
 ### Smart Cleaning Examples:
-- `py_jjans_3.10` → `py_jjans_py310` (removes old version, adds new format)
+- `py_jjans_3.10_scanpy` → `py_jjans_scanpy_py310` ✅ (eliminates duplication)
+- `py_jjans_3.7_harmony` → `py_jjans_harmony_py37` ✅ (eliminates duplication)
 - `R_jjans_4.2_cistopic` → `r_jjans_cistopic_r42` (cleans and standardizes)
-- `neuronchat_r405` → `neuronchat_py310_r40` (detects existing R version)
+- `neuronchat_r405` → `neuronchat_py310` (detects existing R version, no duplication)
 - `scenicplus_v102` → `scenicplus_py311` (removes version suffix)
-- `conda_DL` → `conda_dl_py39` (simple case conversion)
+- `scanpy_analysis` → `scanpy_analysis_scanpy19_py310` (adds detected package version)
+
+### Advanced Features:
+1. **Duplication Prevention**: Detects when versions already exist in different formats
+2. **Package Version Detection**: Extracts key package versions from YAML exports
+3. **Smart Package Mapping**: Recognizes package name variations (harmonypy, harmony, etc.)
+4. **Intelligent Cleaning**: Removes redundant version patterns before adding standardized ones
 
 ### Naming Rules:
 1. **Convert to lowercase**: `MyEnvironment` → `myenvironment`
 2. **Clean existing versions**: Removes patterns like `_py3.10`, `_r4.2`, `_v102`
-3. **Add standardized versions**: `_py310`, `_r42` format
-4. **Resolve conflicts**: Adds `_v1`, `_v2` suffixes when needed
-5. **Preserve meaningful names**: Keeps descriptive parts intact
+3. **Add package versions**: `_scanpy19`, `_harmonypy00` for key packages
+4. **Add standardized language versions**: `_py310`, `_r42` format
+5. **Resolve conflicts**: Adds `_v1`, `_v2` suffixes when needed
+6. **Preserve meaningful names**: Keeps descriptive parts intact
 
 ### Pattern Detection:
 The tool automatically detects and handles:
-- Python versions: `py3.10`, `python3.10`, `_py310`, `py_3.10`
-- R versions: `r4.2`, `_r42`, `r_4.2`, `_r_4.2`
-- Version suffixes: `_v1`, `_v102`, `_version2`
+- **Python versions**: `py3.10`, `python3.10`, `_py310`, `py_3.10`, `_3.10`
+- **R versions**: `r4.2`, `_r42`, `r_4.2`, `_r_4.2`, `r405`
+- **Version suffixes**: `_v1`, `_v102`, `_version2`
+- **Package versions**: From both conda and pip dependencies in YAML files
+
+### Package Version Detection:
+- Automatically scans exported YAML files for key packages
+- Maps environment names to relevant packages (scanpy→scanpy, harmony→harmonypy)
+- Includes up to 2 most relevant package versions to avoid overly long names
+- Supports both conda (`package=version=build`) and pip (`package==version`) formats
 
 ### Conflict Resolution:
 - If `myenv_py39` already exists, new environment becomes `myenv_py39_v1`
@@ -115,17 +131,19 @@ All operations are logged to `environment_manager.log` with:
 ## Example Output
 
 ```
-=== Processing environment: MyEnv ===
+=== Processing environment: py_jjans_3.10_scanpy ===
 Step 1: Exporting environment...
-Successfully exported MyEnv to exported_environments/MyEnv_20250827_102438.yml
-New environment name: myenv_py39
+Successfully exported py_jjans_3.10_scanpy to exported_environments/py_jjans_3.10_scanpy_20250827_104758.yml
+Cleaned base name: py_jjans_3.10_scanpy -> py_jjans_scanpy
+Detected packages: scanpy=1.9, numpy=1.21
+New environment name: py_jjans_scanpy_scanpy19_py310
 Step 2: Creating new environment...
-Successfully created environment myenv_py39
+Successfully created environment py_jjans_scanpy_scanpy19_py310
 Step 3: Verifying new environment...
-Environment myenv_py39 verified successfully
+Environment py_jjans_scanpy_scanpy19_py310 verified successfully
 Step 4: Removing old environment...
-Successfully removed environment MyEnv
-✓ Successfully processed MyEnv -> myenv_py39
+Successfully removed environment py_jjans_3.10_scanpy
+✓ Successfully processed py_jjans_3.10_scanpy -> py_jjans_scanpy_scanpy19_py310
 ```
 
 ## Troubleshooting
