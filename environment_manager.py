@@ -190,14 +190,33 @@ class EnvironmentManager:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             export_file = self.export_dir / f"{env_name}_{timestamp}.yml"
             
-            cmd = [self.cmd_base, "env", "export", "-n", env_name, "-f", str(export_file)]
-            result = self._run_command(cmd)
+            # Try different command formats for different mamba/conda versions
+            commands_to_try = [
+                [self.cmd_base, "env", "export", "-n", env_name, "--file", str(export_file)],  # Long form
+                [self.cmd_base, "env", "export", "-n", env_name, "-f", str(export_file)],      # Short form
+                [self.cmd_base, "env", "export", "--name", env_name, "--file", str(export_file)], # All long form
+            ]
             
-            if result.returncode == 0:
-                self.logger.info(f"Successfully exported {env_name} to {export_file}")
-                return export_file
+            result = None
+            for cmd in commands_to_try:
+                try:
+                    self.logger.debug(f"Trying command: {' '.join(cmd)}")
+                    result = self._run_command(cmd)
+                    if result.returncode == 0:
+                        self.logger.info(f"Successfully exported {env_name} to {export_file}")
+                        return export_file
+                    else:
+                        self.logger.debug(f"Command failed with exit code {result.returncode}")
+                        continue
+                except Exception as e:
+                    self.logger.debug(f"Command failed with exception: {e}")
+                    continue
+            
+            # If we get here, all commands failed
+            if result:
+                self.logger.error(f"Failed to export {env_name} after trying multiple command formats")
             else:
-                self.logger.error(f"Failed to export {env_name}")
+                self.logger.error(f"Failed to export {env_name} - no commands succeeded")
                 return None
                 
         except Exception as e:
