@@ -20,14 +20,29 @@ def test_basic_functionality():
         print(f"Found {len(environments)} environments")
         
         if environments:
-            for env in environments[:3]:  # Show first 3
+            existing_names = [env['name'].lower() for env in environments]
+            for env in environments[:5]:  # Show first 5
                 print(f"- {env['name']} (Python: {env['python_version']}, R: {env['r_version']})")
+                
+                # Show cleaned version if applicable
+                cleaned = manager._clean_existing_versions(env['name'].lower())
+                if cleaned != env['name'].lower():
+                    print(f"  Cleaned base: {env['name']} -> {cleaned}")
+                
                 new_name = manager.generate_new_name(
                     env['name'], 
                     env['python_version'], 
-                    env['r_version']
+                    env['r_version'],
+                    existing_names
                 )
                 print(f"  -> Would rename to: {new_name}")
+                
+                # Check for version detection
+                if manager._has_python_version(env['name'].lower()):
+                    print(f"  ✓ Already has Python version pattern")
+                if manager._has_r_version(env['name'].lower()):
+                    print(f"  ✓ Already has R version pattern")
+                print()
         
         print("✓ Basic functionality test passed!")
         return True

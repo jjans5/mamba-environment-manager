@@ -205,28 +205,108 @@ class EnvironmentManager:
             return None
     
     def generate_new_name(self, old_name: str, python_version: Optional[str], 
-                         r_version: Optional[str]) -> str:
+                         r_version: Optional[str], existing_names: Optional[List[str]] = None) -> str:
         """
-        Generate a new environment name based on naming convention
+        Generate a new environment name based on naming convention with smart conflict resolution
         
         Args:
             old_name: Original environment name
             python_version: Python version (e.g., "3.9")
             r_version: R version (e.g., "4.1")
+            existing_names: List of existing environment names to avoid conflicts
             
         Returns:
             New environment name in lowercase with version suffix
         """
-        # Convert to lowercase
-        new_name = old_name.lower()
+        if existing_names is None:
+            existing_names = []
         
-        # Add version suffixes
-        if python_version:
-            new_name += f"_py{python_version.replace('.', '')}"
-        if r_version:
-            new_name += f"_r{r_version.replace('.', '')}"
+        # Convert to lowercase
+        base_name = old_name.lower()
+        
+        # Check if name already contains version patterns
+        base_name = self._clean_existing_versions(base_name)
+        
+        # Build new name with version suffixes
+        new_name = base_name
+        
+        # Add Python version if available and not already present
+        if python_version and not self._has_python_version(base_name):
+            py_suffix = f"_py{python_version.replace('.', '')}"
+            new_name += py_suffix
+        
+        # Add R version if available and not already present  
+        if r_version and not self._has_r_version(base_name):
+            r_suffix = f"_r{r_version.replace('.', '')}"
+            new_name += r_suffix
+        
+        # Handle conflicts by adding incremental suffix
+        original_new_name = new_name
+        counter = 1
+        while new_name in existing_names or new_name == old_name.lower():
+            new_name = f"{original_new_name}_v{counter}"
+            counter += 1
         
         return new_name
+    
+    def _clean_existing_versions(self, name: str) -> str:
+        """
+        Remove existing version patterns from environment names
+        
+        Args:
+            name: Environment name to clean
+            
+        Returns:
+            Cleaned name without version suffixes
+        """
+        import re
+        
+        # Remove common version patterns
+        patterns = [
+            r'_py\d+(\.\d+)?',          # _py3.10, _py310
+            r'_python\d+(\.\d+)?',      # _python3.10
+            r'_r\d+(\.\d+)?',           # _r4.2, _r42  
+            r'_r_?\d+(\.\d+)?',         # _r4.2, _r_4.2
+            r'py\d+(\.\d+)?$',          # py310 at end
+            r'python\d+(\.\d+)?$',      # python310 at end
+            r'r\d+(\.\d+)?$',           # r42 at end
+            r'_\d+\.\d+$',              # _3.10, _4.2 at end
+            r'_v\d+$',                  # _v1, _v2 version suffixes
+        ]
+        
+        cleaned_name = name
+        for pattern in patterns:
+            cleaned_name = re.sub(pattern, '', cleaned_name, flags=re.IGNORECASE)
+        
+        # Clean up any trailing underscores
+        cleaned_name = cleaned_name.rstrip('_')
+        
+        # If name becomes empty or too short, use original
+        if len(cleaned_name) < 2:
+            return name
+            
+        return cleaned_name
+    
+    def _has_python_version(self, name: str) -> bool:
+        """Check if name already contains Python version"""
+        import re
+        patterns = [
+            r'_py\d+',
+            r'_python\d+',
+            r'py\d+',
+            r'python\d+'
+        ]
+        return any(re.search(pattern, name, re.IGNORECASE) for pattern in patterns)
+    
+    def _has_r_version(self, name: str) -> bool:
+        """Check if name already contains R version"""
+        import re
+        patterns = [
+            r'_r\d+',
+            r'_r_\d+',
+            r'r\d+$'
+        ]
+        return any(re.search(pattern, name, re.IGNORECASE) for pattern in patterns)
     
     def create_environment_from_yaml(self, yaml_file: Path, new_name: str) -> bool:
         """
@@ -338,12 +418,13 @@ class EnvironmentManager:
             self.logger.error(f"Error removing environment {env_name}: {e}")
             return False
     
-    def process_environment(self, env_info: Dict[str, str]) -> bool:
+    def process_environment(self, env_info: Dict[str, str], all_environments: List[Dict[str, str]]) -> bool:
         """
         Process a single environment: export, reinstall, verify, and cleanup
         
         Args:
             env_info: Dictionary containing environment information
+            all_environments: List of all environments for conflict checking
             
         Returns:
             True if all steps successful, False otherwise
@@ -351,6 +432,9 @@ class EnvironmentManager:
         env_name = env_info['name']
         python_version = env_info['python_version']
         r_version = env_info['r_version']
+        
+        # Get existing names for conflict resolution
+        existing_names = [env['name'].lower() for env in all_environments]
         
         self.logger.info(f"\n{Fore.CYAN}=== Processing environment: {env_name} ==={Style.RESET_ALL}")
         
@@ -362,8 +446,13 @@ class EnvironmentManager:
             return False
         
         # Step 2: Generate new name
-        new_name = self.generate_new_name(env_name, python_version, r_version)
+        new_name = self.generate_new_name(env_name, python_version, r_version, existing_names)
         self.logger.info(f"New environment name: {new_name}")
+        
+        # Show what was cleaned if original had versions
+        cleaned_base = self._clean_existing_versions(env_name.lower())
+        if cleaned_base != env_name.lower():
+            self.logger.info(f"Cleaned base name: {env_name} -> {cleaned_base}")
         
         # Step 3: Create new environment
         self.logger.info(f"{Fore.YELLOW}Step 2: Creating new environment...{Style.RESET_ALL}")
@@ -398,28 +487,115 @@ class EnvironmentManager:
             return
         
         print(f"Found {len(environments)} environments:")
+        existing_names = [env['name'].lower() for env in environments]
+        
         for i, env in enumerate(environments, 1):
             python_ver = env['python_version'] or 'Unknown'
             r_ver = env['r_version'] or 'None'
-            new_name = self.generate_new_name(env['name'], env['python_version'], env['r_version'])
-            print(f"{i:2}. {env['name']} (Python: {python_ver}, R: {r_ver}) -> {new_name}")
+            new_name = self.generate_new_name(env['name'], env['python_version'], env['r_version'], existing_names)
+            
+            # Show if name will be cleaned
+            cleaned_base = self._clean_existing_versions(env['name'].lower())
+            name_info = env['name']
+            if cleaned_base != env['name'].lower():
+                name_info += f" (cleaned: {cleaned_base})"
+            
+            print(f"{i:2}. {name_info}")
+            print(f"    Python: {python_ver}, R: {r_ver}")
+            print(f"    → {new_name}")
+            if new_name.endswith('_v1') or '_v' in new_name.split('_')[-1]:
+                print(f"    {Fore.YELLOW}⚠ Conflict resolved with version suffix{Style.RESET_ALL}")
+            print()
         
         print(f"\n{Fore.YELLOW}Options:{Style.RESET_ALL}")
         print("1. Process all environments")
-        print("2. Select specific environments")
-        print("3. Exit")
+        print("2. Select specific environments")  
+        print("3. Preview mode (show changes without processing)")
+        print("4. Exit")
         
-        choice = input("\nEnter your choice (1-3): ").strip()
+        choice = input("\nEnter your choice (1-4): ").strip()
         
         if choice == "1":
             self._process_all_environments(environments)
         elif choice == "2":
             self._process_selected_environments(environments)
         elif choice == "3":
+            self._preview_changes(environments)
+        elif choice == "4":
             print("Exiting...")
             return
         else:
             print(f"{Fore.RED}Invalid choice!{Style.RESET_ALL}")
+    
+    def _preview_changes(self, environments: List[Dict[str, str]]):
+        """Preview what changes would be made without actually processing"""
+        print(f"\n{Fore.CYAN}=== Preview Mode - No Changes Will Be Made ==={Style.RESET_ALL}")
+        
+        existing_names = [env['name'].lower() for env in environments]
+        
+        print(f"\nAnalyzing {len(environments)} environments:\n")
+        
+        unchanged = 0
+        renamed = 0
+        conflicts = 0
+        
+        for env in environments:
+            env_name = env['name']
+            new_name = self.generate_new_name(
+                env_name, 
+                env['python_version'], 
+                env['r_version'], 
+                existing_names
+            )
+            
+            print(f"📁 {env_name}")
+            
+            # Show version info
+            py_ver = env['python_version'] or 'Not detected'
+            r_ver = env['r_version'] or 'Not detected'
+            print(f"   Python: {py_ver}, R: {r_ver}")
+            
+            # Show cleaning info
+            cleaned_base = self._clean_existing_versions(env_name.lower())
+            if cleaned_base != env_name.lower():
+                print(f"   🧹 Will clean: {env_name} → {cleaned_base}")
+            
+            # Show final result
+            if new_name == env_name.lower():
+                print(f"   ✅ No change needed")
+                unchanged += 1
+            else:
+                print(f"   ➡️  Will rename to: {new_name}")
+                renamed += 1
+                
+                if '_v' in new_name.split('_')[-1]:
+                    print(f"   ⚠️  Conflict resolved with version suffix")
+                    conflicts += 1
+            
+            print()
+        
+        # Summary
+        print(f"{Fore.CYAN}=== Preview Summary ==={Style.RESET_ALL}")
+        print(f"Total environments: {len(environments)}")
+        print(f"No changes needed: {unchanged}")
+        print(f"Will be renamed: {renamed}")
+        print(f"Conflicts resolved: {conflicts}")
+        
+        if renamed > 0:
+            print(f"\n{Fore.YELLOW}Would you like to proceed with processing? (y/n): {Style.RESET_ALL}", end="")
+            confirm = input().strip().lower()
+            if confirm in ['y', 'yes']:
+                print("\nChoose processing mode:")
+                print("1. Process all")
+                print("2. Select specific environments")
+                
+                mode_choice = input("Enter choice (1-2): ").strip()
+                if mode_choice == "1":
+                    self._process_all_environments(environments)
+                elif mode_choice == "2":
+                    self._process_selected_environments(environments)
+            else:
+                print("Preview completed. No changes made.")
     
     def _process_all_environments(self, environments: List[Dict[str, str]]):
         """Process all environments"""
@@ -429,7 +605,7 @@ class EnvironmentManager:
         failed = 0
         
         for env in environments:
-            if self.process_environment(env):
+            if self.process_environment(env, environments):
                 successful += 1
             else:
                 failed += 1
@@ -455,7 +631,7 @@ class EnvironmentManager:
             failed = 0
             
             for env in selected_envs:
-                if self.process_environment(env):
+                if self.process_environment(env, environments):
                     successful += 1
                 else:
                     failed += 1
