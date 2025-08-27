@@ -190,33 +190,56 @@ class EnvironmentManager:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             export_file = self.export_dir / f"{env_name}_{timestamp}.yml"
             
-            # Try different command formats for different mamba/conda versions
-            commands_to_try = [
-                [self.cmd_base, "env", "export", "-n", env_name, "--file", str(export_file)],  # Long form
-                [self.cmd_base, "env", "export", "-n", env_name, "-f", str(export_file)],      # Short form
-                [self.cmd_base, "env", "export", "--name", env_name, "--file", str(export_file)], # All long form
-            ]
-            
-            result = None
-            for cmd in commands_to_try:
+            # Different command formats for mamba vs conda
+            if self.cmd_base == "mamba":
+                # Mamba doesn't have -f/--file option, need to redirect output
+                cmd = [self.cmd_base, "env", "export", "-n", env_name]
+                self.logger.debug(f"Trying mamba command: {' '.join(cmd)} > {export_file}")
+                
                 try:
-                    self.logger.debug(f"Trying command: {' '.join(cmd)}")
-                    result = self._run_command(cmd)
+                    result = self._run_command(cmd, check=False)  # Don't raise exception on non-zero exit
                     if result.returncode == 0:
+                        # Write the output to file manually
+                        with open(export_file, 'w') as f:
+                            f.write(result.stdout)
                         self.logger.info(f"Successfully exported {env_name} to {export_file}")
                         return export_file
                     else:
-                        self.logger.debug(f"Command failed with exit code {result.returncode}")
-                        continue
+                        self.logger.error(f"Mamba export failed with exit code {result.returncode}")
+                        if result.stderr:
+                            self.logger.error(f"Error output: {result.stderr}")
+                        return None
                 except Exception as e:
-                    self.logger.debug(f"Command failed with exception: {e}")
-                    continue
-            
-            # If we get here, all commands failed
-            if result:
-                self.logger.error(f"Failed to export {env_name} after trying multiple command formats")
+                    self.logger.error(f"Mamba export failed with exception: {e}")
+                    return None
+                    
             else:
-                self.logger.error(f"Failed to export {env_name} - no commands succeeded")
+                # Conda has -f/--file option, try different formats
+                commands_to_try = [
+                    [self.cmd_base, "env", "export", "-n", env_name, "--file", str(export_file)],  # Long form
+                    [self.cmd_base, "env", "export", "-n", env_name, "-f", str(export_file)],      # Short form
+                    [self.cmd_base, "env", "export", "--name", env_name, "--file", str(export_file)], # All long form
+                ]
+                
+                for cmd in commands_to_try:
+                    try:
+                        self.logger.debug(f"Trying conda command: {' '.join(cmd)}")
+                        result = self._run_command(cmd, check=False)  # Don't raise exception on non-zero exit
+                        if result.returncode == 0:
+                            self.logger.info(f"Successfully exported {env_name} to {export_file}")
+                            return export_file
+                        else:
+                            self.logger.debug(f"Command failed with exit code {result.returncode}")
+                            if result.stderr:
+                                self.logger.debug(f"Error output: {result.stderr}")
+                            continue
+                    except Exception as e:
+                        self.logger.debug(f"Command failed with exception: {e}")
+                        continue
+                
+                # If we get here, all conda commands failed
+                self.logger.error(f"Failed to export {env_name} after trying multiple conda command formats")
+                return None
                 return None
                 
         except Exception as e:
