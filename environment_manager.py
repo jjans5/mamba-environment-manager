@@ -492,10 +492,35 @@ class EnvironmentManager:
                         pkg_name = parts[0].strip()
                         version = parts[1].strip()
                         
+                        # Check if package matches relevant packages (handle R package naming)
+                        pkg_matches_relevant = False
+                        
+                        # Direct match
                         if pkg_name.lower() in [p.lower() for p in relevant_packages]:
+                            pkg_matches_relevant = True
+                        
+                        # Handle R packages: r-seurat should match 'seurat' in relevant_packages
+                        elif pkg_name.lower().startswith('r-'):
+                            r_pkg_name = pkg_name[2:]  # Remove 'r-' prefix
+                            if r_pkg_name.lower() in [p.lower() for p in relevant_packages]:
+                                pkg_matches_relevant = True
+                        
+                        # Handle python packages: py-package should match 'package' 
+                        elif pkg_name.lower().startswith('py-'):
+                            py_pkg_name = pkg_name[3:]  # Remove 'py-' prefix
+                            if py_pkg_name.lower() in [p.lower() for p in relevant_packages]:
+                                pkg_matches_relevant = True
+                        
+                        if pkg_matches_relevant:
                             # Clean version - keep up to 3 parts (major.minor.patch)
                             clean_version = version
-                            package_versions[pkg_name.lower()] = clean_version
+                            # Use the base package name (without r- or py- prefix) for storage
+                            base_pkg_name = pkg_name.lower()
+                            if base_pkg_name.startswith('r-'):
+                                base_pkg_name = base_pkg_name[2:]
+                            elif base_pkg_name.startswith('py-'):
+                                base_pkg_name = base_pkg_name[3:]
+                            package_versions[base_pkg_name] = clean_version
                 
                 elif isinstance(dep, dict) and 'pip' in dep:
                     # Handle pip dependencies
