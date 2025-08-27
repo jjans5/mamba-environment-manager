@@ -199,9 +199,41 @@ class EnvironmentManager:
                 try:
                     result = self._run_command(cmd, check=False)  # Don't raise exception on non-zero exit
                     if result.returncode == 0:
-                        # Write the output to file manually
-                        with open(export_file, 'w') as f:
+                        # Validate the stdout content before writing
+                        if not result.stdout or not result.stdout.strip():
+                            self.logger.error(f"Mamba export returned empty output for {env_name}")
+                            return None
+                        
+                        # Try to parse the YAML to validate it
+                        try:
+                            import yaml
+                            yaml_data = yaml.safe_load(result.stdout)
+                            if not yaml_data or not isinstance(yaml_data, dict):
+                                self.logger.error(f"Mamba export returned invalid YAML structure for {env_name}")
+                                return None
+                        except yaml.YAMLError as e:
+                            self.logger.error(f"Mamba export returned malformed YAML for {env_name}: {e}")
+                            self.logger.debug(f"Problematic YAML content (first 500 chars): {result.stdout[:500]}")
+                            return None
+                        
+                        # Write the validated output to file
+                        with open(export_file, 'w', encoding='utf-8') as f:
                             f.write(result.stdout)
+                        
+                        # Double-check the written file
+                        try:
+                            with open(export_file, 'r', encoding='utf-8') as f:
+                                file_data = yaml.safe_load(f)
+                            if not file_data:
+                                self.logger.error(f"Written YAML file is corrupted for {env_name}")
+                                export_file.unlink()  # Clean up corrupted file
+                                return None
+                        except Exception as e:
+                            self.logger.error(f"Written YAML file validation failed for {env_name}: {e}")
+                            if export_file.exists():
+                                export_file.unlink()  # Clean up corrupted file
+                            return None
+                        
                         self.logger.info(f"Successfully exported {env_name} to {export_file}")
                         return export_file
                     else:
@@ -226,6 +258,22 @@ class EnvironmentManager:
                         self.logger.debug(f"Trying conda command: {' '.join(cmd)}")
                         result = self._run_command(cmd, check=False)  # Don't raise exception on non-zero exit
                         if result.returncode == 0:
+                            # Validate the written file
+                            try:
+                                with open(export_file, 'r', encoding='utf-8') as f:
+                                    import yaml
+                                    file_data = yaml.safe_load(f)
+                                if not file_data:
+                                    self.logger.error(f"Conda export created corrupted YAML file for {env_name}")
+                                    if export_file.exists():
+                                        export_file.unlink()  # Clean up corrupted file
+                                    continue
+                            except Exception as e:
+                                self.logger.error(f"Conda export file validation failed for {env_name}: {e}")
+                                if export_file.exists():
+                                    export_file.unlink()  # Clean up corrupted file
+                                continue
+                            
                             self.logger.info(f"Successfully exported {env_name} to {export_file}")
                             return export_file
                         else:
@@ -239,7 +287,6 @@ class EnvironmentManager:
                 
                 # If we get here, all conda commands failed
                 self.logger.error(f"Failed to export {env_name} after trying multiple conda command formats")
-                return None
                 return None
                 
         except Exception as e:
@@ -426,8 +473,23 @@ class EnvironmentManager:
             with open(yaml_file, 'r') as f:
                 env_data = yaml.safe_load(f)
             
+            # Validate that we have valid YAML data
+            if not env_data or not isinstance(env_data, dict):
+                self.logger.warning(f"Invalid or empty YAML data in {yaml_file}")
+                return {}
+            
             package_versions = {}
             dependencies = env_data.get('dependencies', [])
+            
+            # Handle case where dependencies might be None
+            if dependencies is None:
+                self.logger.warning(f"No dependencies found in {yaml_file}")
+                return {}
+            
+            # Ensure dependencies is a list
+            if not isinstance(dependencies, list):
+                self.logger.warning(f"Dependencies is not a list in {yaml_file}: {type(dependencies)}")
+                return {}
             
             # Common package mappings for environment names
             package_mappings = {
@@ -476,12 +538,13 @@ class EnvironmentManager:
                 elif isinstance(dep, dict) and 'pip' in dep:
                     # Handle pip dependencies
                     pip_deps = dep['pip']
-                    for pip_dep in pip_deps:
-                        if isinstance(pip_dep, str):
-                            pkg_name = re.split(r'[=><]', pip_dep)[0].strip()
-                            # Only add package if it's mentioned in environment name
-                            if any(pkg in env_name_lower for pkg in [pkg_name.lower()]):
-                                relevant_packages.add(pkg_name)
+                    if pip_deps and isinstance(pip_deps, list):
+                        for pip_dep in pip_deps:
+                            if isinstance(pip_dep, str):
+                                pkg_name = re.split(r'[=><]', pip_dep)[0].strip()
+                                # Only add package if it's mentioned in environment name
+                                if any(pkg in env_name_lower for pkg in [pkg_name.lower()]):
+                                    relevant_packages.add(pkg_name)
             
             # Extract versions for relevant packages
             for dep in dependencies:
@@ -525,17 +588,18 @@ class EnvironmentManager:
                 elif isinstance(dep, dict) and 'pip' in dep:
                     # Handle pip dependencies
                     pip_deps = dep['pip']
-                    for pip_dep in pip_deps:
-                        if isinstance(pip_dep, str):
-                            # Handle pip format: package==version or package>=version
-                            match = re.match(r'([^=><]+)[=><]+([0-9.]+)', pip_dep)
-                            if match:
-                                pkg_name, version = match.groups()
-                                pkg_name = pkg_name.strip()
-                                if pkg_name.lower() in [p.lower() for p in relevant_packages]:
-                                    # Keep full version for pip packages too
-                                    clean_version = version
-                                    package_versions[pkg_name.lower()] = clean_version
+                    if pip_deps and isinstance(pip_deps, list):
+                        for pip_dep in pip_deps:
+                            if isinstance(pip_dep, str):
+                                # Handle pip format: package==version or package>=version
+                                match = re.match(r'([^=><]+)[=><]+([0-9.]+)', pip_dep)
+                                if match:
+                                    pkg_name, version = match.groups()
+                                    pkg_name = pkg_name.strip()
+                                    if pkg_name.lower() in [p.lower() for p in relevant_packages]:
+                                        # Keep full version for pip packages too
+                                        clean_version = version
+                                        package_versions[pkg_name.lower()] = clean_version
             
             return package_versions
             
