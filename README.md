@@ -2,6 +2,28 @@
 
 A comprehensive Python tool for managing mamba/conda environments with automated reinstallation and renaming capabilities.
 
+## Project Structure
+
+```
+├── environment_manager.py      # Main environment management tool
+├── yaml_analyzer.py           # YAML file analysis and cleanup utility
+├── batch_process.py           # Batch processing script
+├── README.md                  # This documentation
+├── requirements.txt           # Python dependencies
+├── tests/                     # All test files
+│   ├── test_manager.py       # Core functionality tests
+│   ├── test_smart_naming.py  # Naming convention tests
+│   └── ...                   # Additional test files
+├── utils/                     # Utility and debug scripts
+│   ├── demo_new_features.py  # Feature demonstrations
+│   ├── debug_*.py           # Debug utilities
+│   └── ...                   # Additional utilities
+├── docs/                      # Documentation and examples
+│   └── environment_manager_demo.ipynb  # Jupyter notebook demo
+├── exported_environments/     # YAML exports (auto-created)
+└── backup_environments/       # Operation logs (auto-created)
+```
+
 ## Features
 
 - **Export & Reinstall**: Export broken environments to YAML files and reinstall them
@@ -12,7 +34,8 @@ A comprehensive Python tool for managing mamba/conda environments with automated
 - **Detailed Logging**: All operations logged to file with timestamps
 - **Interactive Mode**: User-friendly interface for selective processing
 - **Batch Mode**: Automated processing of all environments
-- **🆕 YAML Cleanup**: Remove old exported environment files to prevent clutter
+- **🆕 YAML Analysis**: Analyze exported files for duplicates and conflicts
+- **🆕 Smart Cleanup**: Remove duplicate YAML files intelligently
 - **🆕 Jupyter Kernel Recreation**: Automatically update/create Jupyter kernels for environments
 
 ## Usage
@@ -25,10 +48,26 @@ This mode allows you to:
 - View all environments with their current and proposed new names
 - **Preview changes** before processing (no modifications made)
 - Choose to process all environments or select specific ones
-- **🆕 Clean up exported YAML files** (Option 4)
-- **🆕 Recreate Jupyter kernels** for Python/R environments (Option 5)
+- **🆕 Analyze YAML files** for duplicates and conflicts (Option 4)
+- **🆕 Clean up YAML files** with smart duplicate detection (Option 5)
+- **🆕 Recreate Jupyter kernels** for Python/R environments (Option 6)
 - See real-time progress and results
 - Review smart naming decisions and conflict resolutions
+
+### YAML Analysis (Standalone)
+```bash
+# Analyze YAML files for duplicates and conflicts
+python yaml_analyzer.py --analyze
+
+# Clean up duplicate files (keep newest)
+python yaml_analyzer.py --cleanup-duplicates keep_newest
+
+# Clean up multiple files per environment (keep latest)
+python yaml_analyzer.py --cleanup-env-duplicates
+
+# Remove all YAML files
+python yaml_analyzer.py --cleanup-all
+```
 
 ### Batch Mode (All Environments)
 ```bash
@@ -38,10 +77,10 @@ Processes all environments automatically after confirmation.
 
 ### Test Mode
 ```bash
-python test_manager.py             # Basic functionality test
-python test_smart_naming.py        # Test smart naming with real patterns  
-python test_package_detection.py   # Test package version detection
-python test_new_features.py        # Test new cleanup and kernel features
+python tests/test_manager.py             # Basic functionality test
+python tests/test_smart_naming.py        # Test smart naming with real patterns  
+python tests/test_package_detection.py   # Test package version detection
+python tests/test_new_features.py        # Test new cleanup and kernel features
 ```
 Tests the functionality without making any changes.
 
@@ -153,15 +192,32 @@ Successfully removed environment py_jjans_3.10_scanpy
 
 ## New Features (v2.0)
 
-### YAML Cleanup Function
-Removes old exported environment files to prevent directory clutter:
-```python
-# Programmatic usage
-manager.cleanup_exported_yaml_files(confirm=False)  # No confirmation
-manager.cleanup_exported_yaml_files(confirm=True)   # With confirmation
+### YAML Analysis & Smart Cleanup
+**Standalone tool**: `yaml_analyzer.py`
+- **Duplicate Detection**: Finds files with identical content (ignoring names)
+- **Environment Grouping**: Shows multiple exports for the same environment
+- **Smart Cleanup Options**:
+  ```python
+  # Programmatic usage
+  from yaml_analyzer import YAMLAnalyzer
+  analyzer = YAMLAnalyzer()
+  
+  # Analyze files
+  analysis = analyzer.analyze_yaml_files()
+  analyzer.print_analysis_report(analysis)
+  
+  # Clean up duplicates (keep newest)
+  analyzer.cleanup_duplicates(analysis, "keep_newest")
+  
+  # Clean up environment duplicates (keep latest per environment)
+  analyzer.cleanup_by_environment(analysis, keep_latest=True)
+  ```
 
-# Interactive menu: Option 4
-```
+**Key Benefits**:
+- **Efficient**: No environment scanning required - analyzes files directly
+- **Smart Detection**: Content-based duplicate detection (ignores naming differences)
+- **Flexible Cleanup**: Multiple strategies for different use cases
+- **Detailed Reports**: Shows file sizes, modification times, dependency counts
 
 ### Jupyter Kernel Recreation
 Updates/creates Jupyter kernels for environments with Python or R:
@@ -172,7 +228,7 @@ manager.recreate_jupyter_kernels()
 # Recreate kernels for specific environments
 manager.recreate_jupyter_kernels(['env1', 'env2'])
 
-# Interactive menu: Option 5
+# Interactive menu: Option 6
 ```
 
 **Kernel Features:**

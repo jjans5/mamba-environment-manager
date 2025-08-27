@@ -24,6 +24,9 @@ from typing import List, Dict, Optional, Tuple, Union
 import yaml
 from colorama import init, Fore, Style
 
+# Import the new YAML analyzer
+from yaml_analyzer import YAMLAnalyzer
+
 # Initialize colorama for cross-platform colored output
 init(autoreset=True)
 
@@ -1428,11 +1431,12 @@ class EnvironmentManager:
         print("1. Process all environments")
         print("2. Select specific environments")  
         print("3. Preview mode (show changes without processing)")
-        print("4. Clean up exported YAML files")
-        print("5. Recreate Jupyter kernels")
-        print("6. Exit")
+        print("4. Analyze exported YAML files")
+        print("5. Clean up YAML files")
+        print("6. Recreate Jupyter kernels")
+        print("7. Exit")
         
-        choice = input("\nEnter your choice (1-6): ").strip()
+        choice = input("\nEnter your choice (1-7): ").strip()
         
         if choice == "1":
             self._process_all_environments(environments)
@@ -1441,10 +1445,12 @@ class EnvironmentManager:
         elif choice == "3":
             self._preview_changes(environments)
         elif choice == "4":
-            self.cleanup_exported_yaml_files()
+            self._handle_yaml_analysis()
         elif choice == "5":
-            self._handle_kernel_recreation(environments)
+            self._handle_yaml_cleanup()
         elif choice == "6":
+            self._handle_kernel_recreation(environments)
+        elif choice == "7":
             print("Exiting...")
             return
         else:
@@ -1499,6 +1505,35 @@ class EnvironmentManager:
             except (ValueError, IndexError) as e:
                 print(f"{Fore.RED}Invalid selection: {e}{Style.RESET_ALL}")
         elif choice == "3":
+            return
+        else:
+            print(f"{Fore.RED}Invalid choice!{Style.RESET_ALL}")
+
+    def _handle_yaml_analysis(self):
+        """Handle YAML analysis menu"""
+        print(f"\n{Fore.CYAN}=== YAML File Analysis ==={Style.RESET_ALL}")
+        self.analyze_and_cleanup_yaml_files("analyze")
+
+    def _handle_yaml_cleanup(self):
+        """Handle YAML cleanup with options"""
+        print(f"\n{Fore.CYAN}=== YAML File Cleanup ==={Style.RESET_ALL}")
+        print("1. Analyze files first (recommended)")
+        print("2. Clean up duplicates (keep newest)")
+        print("3. Clean up environment duplicates (keep latest per environment)")
+        print("4. Remove all YAML files")
+        print("5. Back to main menu")
+        
+        choice = input("\nEnter your choice (1-5): ").strip()
+        
+        if choice == "1":
+            self.analyze_and_cleanup_yaml_files("analyze")
+        elif choice == "2":
+            self.analyze_and_cleanup_yaml_files("cleanup_duplicates")
+        elif choice == "3":
+            self.analyze_and_cleanup_yaml_files("cleanup_env_duplicates")
+        elif choice == "4":
+            self.analyze_and_cleanup_yaml_files("cleanup_all")
+        elif choice == "5":
             return
         else:
             print(f"{Fore.RED}Invalid choice!{Style.RESET_ALL}")
@@ -1657,9 +1692,59 @@ class EnvironmentManager:
         
         return sorted(list(indices))
 
+    def analyze_and_cleanup_yaml_files(self, action: str = "analyze") -> bool:
+        """
+        Analyze YAML files and optionally clean them up
+        
+        Args:
+            action: What to do - "analyze", "cleanup_duplicates", "cleanup_env_duplicates", "cleanup_all"
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            analyzer = YAMLAnalyzer(self.export_dir)
+            analysis = analyzer.analyze_yaml_files()
+            
+            if analysis['total_files'] == 0:
+                print(f"{Fore.YELLOW}No YAML files found in {self.export_dir}{Style.RESET_ALL}")
+                return True
+            
+            # Always show the analysis first
+            analyzer.print_analysis_report(analysis)
+            
+            if action == "analyze":
+                return True
+            elif action == "cleanup_duplicates":
+                if analysis['duplicates']:
+                    removed = analyzer.cleanup_duplicates(analysis, "keep_newest")
+                    print(f"{Fore.GREEN}✅ Removed {removed} duplicate files{Style.RESET_ALL}")
+                else:
+                    print(f"{Fore.GREEN}No duplicate files found{Style.RESET_ALL}")
+                return True
+            elif action == "cleanup_env_duplicates":
+                removed = analyzer.cleanup_by_environment(analysis, keep_latest=True)
+                if removed > 0:
+                    print(f"{Fore.GREEN}✅ Removed {removed} environment duplicate files{Style.RESET_ALL}")
+                else:
+                    print(f"{Fore.GREEN}No environment duplicates found{Style.RESET_ALL}")
+                return True
+            elif action == "cleanup_all":
+                removed = analyzer.cleanup_all_files(confirm=True)
+                print(f"{Fore.GREEN}✅ Removed {removed} files{Style.RESET_ALL}")
+                return True
+            else:
+                print(f"{Fore.RED}Unknown action: {action}{Style.RESET_ALL}")
+                return False
+                
+        except Exception as e:
+            print(f"{Fore.RED}❌ Error during YAML analysis: {e}{Style.RESET_ALL}")
+            self.logger.error(f"Error during YAML analysis: {e}")
+            return False
+
     def cleanup_exported_yaml_files(self, confirm: bool = True) -> bool:
         """
-        Clean up YAML files in the exported_environments directory
+        Legacy function - now redirects to the YAML analyzer
         
         Args:
             confirm: Whether to ask for confirmation before deletion
@@ -1668,38 +1753,10 @@ class EnvironmentManager:
             bool: True if successful, False otherwise
         """
         try:
-            yaml_files = list(self.export_dir.glob("*.yml")) + list(self.export_dir.glob("*.yaml"))
-            
-            if not yaml_files:
-                print(f"{Fore.YELLOW}No YAML files found in {self.export_dir}{Style.RESET_ALL}")
-                return True
-            
-            print(f"\n{Fore.CYAN}Found {len(yaml_files)} YAML files in {self.export_dir}:{Style.RESET_ALL}")
-            for i, file in enumerate(yaml_files, 1):
-                print(f"{i:3d}. {file.name}")
-            
-            if confirm:
-                response = input(f"\n{Fore.YELLOW}Do you want to delete all these YAML files? (y/N): {Style.RESET_ALL}")
-                if response.lower() not in ['y', 'yes']:
-                    print(f"{Fore.YELLOW}Cleanup cancelled.{Style.RESET_ALL}")
-                    return False
-            
-            print(f"\n🗑️  Cleaning up YAML files...")
-            deleted_count = 0
-            
-            for yaml_file in yaml_files:
-                try:
-                    yaml_file.unlink()
-                    deleted_count += 1
-                    self.logger.info(f"Deleted YAML file: {yaml_file}")
-                except Exception as e:
-                    print(f"{Fore.RED}❌ Failed to delete {yaml_file.name}: {e}{Style.RESET_ALL}")
-                    self.logger.error(f"Failed to delete {yaml_file}: {e}")
-            
-            print(f"{Fore.GREEN}✅ Successfully deleted {deleted_count} YAML files{Style.RESET_ALL}")
-            self.logger.info(f"Cleanup completed: deleted {deleted_count} YAML files")
+            analyzer = YAMLAnalyzer(self.export_dir)
+            removed = analyzer.cleanup_all_files(confirm=confirm)
+            self.logger.info(f"Cleanup completed: deleted {removed} YAML files")
             return True
-            
         except Exception as e:
             print(f"{Fore.RED}❌ Error during cleanup: {e}{Style.RESET_ALL}")
             self.logger.error(f"Error during YAML cleanup: {e}")
