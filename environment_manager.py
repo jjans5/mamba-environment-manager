@@ -19,7 +19,7 @@ import re
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Union
 import yaml
 from colorama import init, Fore, Style
 
@@ -235,7 +235,69 @@ class EnvironmentManager:
         self.logger.debug(f"YAML repair completed for {env_name}")
         return repaired
     
-    def export_environment(self, env_name: str) -> Optional[Path]:
+    def _is_environment_empty(self, yaml_data: dict) -> bool:
+        """
+        Check if an environment is empty (has no meaningful packages)
+        
+        Args:
+            yaml_data: Parsed YAML data from environment export
+            
+        Returns:
+            True if environment is empty, False otherwise
+        """
+        dependencies = yaml_data.get('dependencies', [])
+        if not dependencies:
+            return True
+            
+        # Check if dependencies only contains base packages or is effectively empty
+        meaningful_packages = []
+        for dep in dependencies:
+            if isinstance(dep, str):
+                # Skip base packages that come with every conda/mamba environment
+                base_packages = {'python', '_libgcc_mutex', '_openmp_mutex', 'libgcc-ng', 'libgomp', 'libstdcxx-ng'}
+                package_name = dep.split('=')[0].split()[0].lower()
+                if package_name not in base_packages:
+                    meaningful_packages.append(dep)
+            elif isinstance(dep, dict) and 'pip' in dep:
+                # Check pip dependencies
+                pip_deps = dep.get('pip', [])
+                if pip_deps:
+                    meaningful_packages.extend(pip_deps)
+        
+        return len(meaningful_packages) == 0
+    
+    def _is_base_environment(self, env_path: str, env_name: str) -> bool:
+        """
+        Check if an environment is a base environment that should not be removed
+        
+        Args:
+            env_path: Path to the environment
+            env_name: Name of the environment
+            
+        Returns:
+            True if it's a base environment, False otherwise
+        """
+        # Base environment typically has same name as the parent directory
+        # or is located directly in the conda/mamba installation directory
+        parent_dir = os.path.basename(os.path.dirname(env_path))
+        
+        # Common base environment patterns:
+        # 1. Environment name matches parent directory (e.g., anaconda3/anaconda3, miniconda3/miniconda3)
+        # 2. Environment is in root conda installation (no 'envs' in path)
+        # 3. Environment name is 'base'
+        
+        if env_name == 'base':
+            return True
+            
+        if env_name == parent_dir:
+            return True
+            
+        if 'envs' not in env_path:
+            return True
+            
+        return False
+    
+    def export_environment(self, env_name: str) -> Union[Optional[Path], str]:
         """
         Export an environment to a YAML file
         
@@ -291,6 +353,11 @@ class EnvironmentManager:
                             if dependencies is not None and not isinstance(dependencies, list):
                                 self.logger.warning(f"Fixing invalid dependencies format for {env_name}: {type(dependencies)} -> list")
                                 yaml_data['dependencies'] = []
+                            
+                            # Check if environment is empty
+                            if self._is_environment_empty(yaml_data):
+                                self.logger.warning(f"Environment '{env_name}' is empty (no meaningful packages). Marking for deletion.")
+                                return "EMPTY"  # Special return value to indicate empty environment
                             
                             # Re-export the cleaned YAML to ensure it's valid
                             clean_yaml = yaml.dump(yaml_data, default_flow_style=False, allow_unicode=True)
@@ -359,6 +426,11 @@ class EnvironmentManager:
                                 import yaml
                                 conda_yaml_data = yaml.safe_load(conda_result.stdout)
                                 if conda_yaml_data and isinstance(conda_yaml_data, dict):
+                                    # Check if environment is empty
+                                    if self._is_environment_empty(conda_yaml_data):
+                                        self.logger.warning(f"Environment '{env_name}' is empty (no meaningful packages). Marking for deletion.")
+                                        return "EMPTY"  # Special return value to indicate empty environment
+                                    
                                     with open(export_file, 'w', encoding='utf-8') as f:
                                         f.write(conda_result.stdout)
                                     self.logger.info(f"Successfully exported {env_name} to {export_file} using conda fallback")
@@ -391,6 +463,14 @@ class EnvironmentManager:
                                     if export_file.exists():
                                         export_file.unlink()  # Clean up corrupted file
                                     continue
+                                
+                                # Check if environment is empty
+                                if self._is_environment_empty(file_data):
+                                    self.logger.warning(f"Environment '{env_name}' is empty (no meaningful packages). Marking for deletion.")
+                                    if export_file.exists():
+                                        export_file.unlink()  # Clean up the file since we don't need it
+                                    return "EMPTY"  # Special return value to indicate empty environment
+                                    
                             except Exception as e:
                                 self.logger.error(f"Conda export file validation failed for {env_name}: {e}")
                                 if export_file.exists():
@@ -958,7 +1038,35 @@ class EnvironmentManager:
             self.logger.error(f"Failed to export {env_name}, skipping...")
             return False
         
+        # Check if environment is empty
+        if yaml_file == "EMPTY":
+            self.logger.warning(f"{Fore.YELLOW}Environment '{env_name}' is empty (no meaningful packages).{Style.RESET_ALL}")
+            
+            # Check if it's a base environment before trying to remove
+            env_path = env_info.get('path', '')
+            if self._is_base_environment(env_path, env_name):
+                self.logger.warning(f"{Fore.YELLOW}'{env_name}' is a base environment and cannot be removed.{Style.RESET_ALL}")
+                self.logger.info(f"{Fore.YELLOW}Skipping base environment: {env_name}{Style.RESET_ALL}")
+                return True  # Consider this "successful" since we handled it appropriately
+            
+            self.logger.info(f"{Fore.YELLOW}Removing empty environment: {env_name}{Style.RESET_ALL}")
+            
+            # Remove the empty environment
+            try:
+                result = self._run_command([self.cmd_base, "env", "remove", "-n", env_name, "-y"], check=False)
+                if result.returncode == 0:
+                    self.logger.info(f"{Fore.GREEN}✓ Successfully removed empty environment: {env_name}{Style.RESET_ALL}")
+                    return True
+                else:
+                    self.logger.error(f"Failed to remove empty environment {env_name}: {result.stderr}")
+                    return False
+            except Exception as e:
+                self.logger.error(f"Error removing empty environment {env_name}: {e}")
+                return False
+        
         # Step 2: Generate new name (now with package version detection)
+        # At this point, yaml_file is definitely a Path (not "EMPTY" or None)
+        assert isinstance(yaml_file, Path), "yaml_file must be a Path at this point"
         new_name = self.generate_new_name(
             env_name, python_version, r_version, existing_names, yaml_file
         )
@@ -1018,7 +1126,12 @@ class EnvironmentManager:
             # Quick export for package detection (for display only)
             temp_yaml = None
             try:
-                temp_yaml = self.export_environment(env['name'])
+                exported_result = self.export_environment(env['name'])
+                if exported_result == "EMPTY":
+                    # Environment is empty, skip package detection
+                    temp_yaml = None
+                elif isinstance(exported_result, Path):
+                    temp_yaml = exported_result
             except:
                 pass  # Continue without package detection if export fails
             
@@ -1036,7 +1149,7 @@ class EnvironmentManager:
             print(f"    Python: {python_ver}, R: {r_ver}")
             
             # Show package versions if detected
-            if temp_yaml:
+            if temp_yaml and isinstance(temp_yaml, Path):
                 package_versions = self._extract_package_versions_from_yaml(temp_yaml, env['name'])
                 if package_versions:
                     pkg_info = ', '.join([f"{pkg}={ver}" for pkg, ver in list(package_versions.items())[:2]])
@@ -1083,7 +1196,14 @@ class EnvironmentManager:
             env_name = env['name']
             
             # Export temporarily for package version detection in preview
-            temp_yaml = self.export_environment(env_name)
+            exported_result = self.export_environment(env_name)
+            temp_yaml = None
+            
+            if exported_result == "EMPTY":
+                print(f"📁 {env_name} (EMPTY - will be removed)")
+                continue
+            elif isinstance(exported_result, Path):
+                temp_yaml = exported_result
             
             new_name = self.generate_new_name(
                 env_name, 
@@ -1101,7 +1221,7 @@ class EnvironmentManager:
             print(f"   Python: {py_ver}, R: {r_ver}")
             
             # Show package versions if detected
-            if temp_yaml:
+            if temp_yaml and isinstance(temp_yaml, Path):
                 package_versions = self._extract_package_versions_from_yaml(temp_yaml, env_name)
                 if package_versions:
                     pkg_info = ', '.join([f"{pkg}={ver}" for pkg, ver in package_versions.items()])
