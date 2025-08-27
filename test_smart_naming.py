@@ -34,6 +34,11 @@ def test_naming_patterns():
         {'name': 'R_decon', 'python_version': None, 'r_version': '4.2'},
         {'name': 'scenicplus_dev', 'python_version': '3.11', 'r_version': None},
         {'name': 'scenicplus_v102', 'python_version': '3.11', 'r_version': None},
+        
+        # Edge cases that should now work correctly
+        {'name': 'conversion_r432', 'python_version': '3.9', 'r_version': '4.3'},
+        {'name': 'bulk_seq', 'python_version': '3.9', 'r_version': '4.1'},
+        {'name': 'neuronchat_r405', 'python_version': '3.10', 'r_version': '4.0'},  # This should now include both!
     ]
     
     print("=== Testing Smart Environment Naming ===\n")
@@ -68,6 +73,10 @@ def test_naming_patterns():
         )
         
         print(f"  New name: {new_name}")
+        
+        # Highlight important fixes
+        if env['name'] == 'neuronchat_r405' and 'r40' in new_name and 'py310' in new_name:
+            print(f"  🎉 FIXED: Now includes both Python and R versions!")
         
         # Check for conflicts
         if new_name.endswith('_v1') or '_v' in new_name.split('_')[-1]:

@@ -241,26 +241,17 @@ class EnvironmentManager:
         if package_versions:
             new_name = self._add_package_versions_to_name(new_name, package_versions)
         
-        # Check if we should add Python version
-        # Don't add if already present in original name or if version is already in cleaned name
-        should_add_python = (
-            python_version and 
-            not self._has_python_version(base_name) and
-            not self._version_already_in_name(new_name, python_version, 'python')
-        )
+        # For version addition, we should add them consistently to create standardized names
+        # Since we're cleaning the base name and creating a new standardized name,
+        # we want consistent versioning regardless of what was in the original
         
-        if should_add_python and python_version:
+        # Add Python version if available
+        if python_version:
             py_suffix = f"_py{python_version.replace('.', '')}"
             new_name += py_suffix
         
-        # Check if we should add R version
-        should_add_r = (
-            r_version and 
-            not self._has_r_version(base_name) and
-            not self._version_already_in_name(new_name, r_version, 'r')
-        )
-        
-        if should_add_r and r_version:
+        # Add R version if available  
+        if r_version:
             r_suffix = f"_r{r_version.replace('.', '')}"
             new_name += r_suffix
         
