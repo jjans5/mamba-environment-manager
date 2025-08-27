@@ -308,6 +308,12 @@ class EnvironmentManager:
             Path to the exported YAML file, or None if failed
         """
         try:
+            # First check if environment exists
+            env_list = self.list_environments()
+            if not any(env['name'] == env_name for env in env_list):
+                self.logger.error(f"Environment '{env_name}' does not exist")
+                return None
+            
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             export_file = self.export_dir / f"{env_name}_{timestamp}.yml"
             

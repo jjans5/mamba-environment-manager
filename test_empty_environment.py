@@ -42,15 +42,21 @@ def test_empty_environment_detection():
             
             # Test the full process_environment workflow
             print("Testing full process workflow...")
-            env_info = {
-                'name': test_env,
-                'python_version': None,
-                'r_version': None,
-                'path': f"/some/path/{test_env}"
-            }
             
-            all_envs = [env_info]
-            result = manager.process_environment(env_info, all_envs)
+            # Get the actual environment info from the environment list
+            envs = manager.list_environments()
+            test_env_info = None
+            for env in envs:
+                if env['name'] == test_env:
+                    test_env_info = env
+                    break
+            
+            if not test_env_info:
+                print(f"✗ Could not find {test_env} in environment list")
+                return False
+            
+            all_envs = [test_env_info]
+            result = manager.process_environment(test_env_info, all_envs)
             
             if result:
                 print("✓ Empty environment was successfully processed (removed)")
