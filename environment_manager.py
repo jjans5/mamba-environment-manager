@@ -176,6 +176,65 @@ class EnvironmentManager:
             pass
         return None
     
+    def _repair_mamba_yaml(self, yaml_content: str, env_name: str) -> str:
+        """
+        Attempt to repair common mamba YAML export issues
+        
+        Args:
+            yaml_content: Raw YAML content from mamba export
+            env_name: Environment name for logging
+            
+        Returns:
+            Repaired YAML content
+        """
+        self.logger.debug(f"Attempting to repair YAML for {env_name}")
+        
+        # Common fixes for mamba YAML issues
+        repaired = yaml_content
+        
+        # Fix 1: Ensure proper YAML structure
+        lines = repaired.split('\n')
+        
+        # Fix 2: Handle malformed channels section
+        # Sometimes mamba outputs channels in wrong format
+        for i, line in enumerate(lines):
+            if line.strip() == 'channels:':
+                # Check next line for proper format
+                if i + 1 < len(lines):
+                    next_line = lines[i + 1]
+                    # If next line doesn't start with '  -' or is empty, fix it
+                    if next_line.strip() and not next_line.strip().startswith('-'):
+                        # Assume it's a single channel without proper list format
+                        channel_name = next_line.strip()
+                        lines[i + 1] = f"  - {channel_name}"
+                        self.logger.debug(f"Fixed channels format: '{next_line.strip()}' -> '  - {channel_name}'")
+        
+        # Fix 3: Handle malformed dependencies
+        in_dependencies = False
+        for i, line in enumerate(lines):
+            if line.strip() == 'dependencies:':
+                in_dependencies = True
+                continue
+            elif line.strip().endswith(':') and in_dependencies:
+                in_dependencies = False
+            elif in_dependencies and line.strip() and not line.strip().startswith('-') and not line.strip().startswith('  -'):
+                # Fix dependency line that's missing the dash
+                if '=' in line.strip():  # Looks like a package spec
+                    old_line = line
+                    lines[i] = f"  - {line.strip()}"
+                    self.logger.debug(f"Fixed dependency format: '{old_line.strip()}' -> '  - {line.strip()}'")
+        
+        repaired = '\n'.join(lines)
+        
+        # Fix 4: Remove any null bytes or other problematic characters
+        repaired = repaired.replace('\x00', '')
+        
+        # Fix 5: Ensure UTF-8 encoding
+        repaired = repaired.encode('utf-8', errors='ignore').decode('utf-8')
+        
+        self.logger.debug(f"YAML repair completed for {env_name}")
+        return repaired
+    
     def export_environment(self, env_name: str) -> Optional[Path]:
         """
         Export an environment to a YAML file
@@ -210,15 +269,60 @@ class EnvironmentManager:
                             yaml_data = yaml.safe_load(result.stdout)
                             if not yaml_data or not isinstance(yaml_data, dict):
                                 self.logger.error(f"Mamba export returned invalid YAML structure for {env_name}")
+                                self.logger.debug(f"Invalid YAML content: {result.stdout[:500]}")
                                 return None
+                            
+                            # Validate required fields
+                            if 'name' not in yaml_data:
+                                self.logger.error(f"Mamba export missing 'name' field for {env_name}")
+                                return None
+                            
+                            # Validate channels field
+                            channels = yaml_data.get('channels')
+                            if channels is not None and not isinstance(channels, list):
+                                self.logger.warning(f"Fixing invalid channels format for {env_name}: {type(channels)} -> list")
+                                if isinstance(channels, str):
+                                    yaml_data['channels'] = [channels]
+                                else:
+                                    yaml_data['channels'] = []
+                            
+                            # Validate dependencies field
+                            dependencies = yaml_data.get('dependencies')
+                            if dependencies is not None and not isinstance(dependencies, list):
+                                self.logger.warning(f"Fixing invalid dependencies format for {env_name}: {type(dependencies)} -> list")
+                                yaml_data['dependencies'] = []
+                            
+                            # Re-export the cleaned YAML to ensure it's valid
+                            clean_yaml = yaml.dump(yaml_data, default_flow_style=False, allow_unicode=True)
+                            
                         except yaml.YAMLError as e:
-                            self.logger.error(f"Mamba export returned malformed YAML for {env_name}: {e}")
-                            self.logger.debug(f"Problematic YAML content (first 500 chars): {result.stdout[:500]}")
-                            return None
+                            self.logger.warning(f"Mamba export YAML parsing failed for {env_name}: {e}")
+                            self.logger.debug(f"Attempting to repair YAML...")
+                            
+                            # Try to repair the YAML
+                            try:
+                                repaired_yaml = self._repair_mamba_yaml(result.stdout, env_name)
+                                yaml_data = yaml.safe_load(repaired_yaml)
+                                if yaml_data and isinstance(yaml_data, dict):
+                                    self.logger.info(f"Successfully repaired YAML for {env_name}")
+                                    clean_yaml = repaired_yaml
+                                else:
+                                    self.logger.error(f"YAML repair failed for {env_name}")
+                                    return None
+                            except Exception as repair_e:
+                                self.logger.error(f"YAML repair failed for {env_name}: {repair_e}")
+                                self.logger.debug(f"Original problematic YAML (first 500 chars): {result.stdout[:500]}")
+                                return None
                         
-                        # Write the validated output to file
+                        # Write the validated/cleaned output to file
                         with open(export_file, 'w', encoding='utf-8') as f:
-                            f.write(result.stdout)
+                            if 'clean_yaml' in locals():
+                                # Use the cleaned YAML if we had to fix something
+                                f.write(clean_yaml)
+                                self.logger.debug(f"Wrote cleaned YAML for {env_name}")
+                            else:
+                                # Use original output if no cleaning was needed
+                                f.write(result.stdout)
                         
                         # Double-check the written file
                         try:
@@ -243,6 +347,25 @@ class EnvironmentManager:
                         return None
                 except Exception as e:
                     self.logger.error(f"Mamba export failed with exception: {e}")
+                    
+                    # If mamba fails, try conda as fallback
+                    if self.cmd_base == "mamba":
+                        self.logger.warning(f"Trying conda fallback for {env_name}")
+                        try:
+                            conda_cmd = ["conda", "env", "export", "-n", env_name]
+                            conda_result = self._run_command(conda_cmd, check=False)
+                            if conda_result.returncode == 0 and conda_result.stdout:
+                                # Validate conda output
+                                import yaml
+                                conda_yaml_data = yaml.safe_load(conda_result.stdout)
+                                if conda_yaml_data and isinstance(conda_yaml_data, dict):
+                                    with open(export_file, 'w', encoding='utf-8') as f:
+                                        f.write(conda_result.stdout)
+                                    self.logger.info(f"Successfully exported {env_name} to {export_file} using conda fallback")
+                                    return export_file
+                        except Exception as conda_e:
+                            self.logger.debug(f"Conda fallback also failed: {conda_e}")
+                    
                     return None
                     
             else:
