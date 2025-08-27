@@ -63,7 +63,8 @@ def test_naming_patterns():
             env['name'], 
             env['python_version'], 
             env['r_version'],
-            existing_names
+            existing_names,
+            None  # No YAML file for test
         )
         
         print(f"  New name: {new_name}")
@@ -89,7 +90,8 @@ def test_naming_patterns():
             env['name'], 
             env['python_version'], 
             env['r_version'],
-            existing_conflict_names
+            existing_conflict_names,
+            None  # No YAML file for test
         )
         print(f"{env['name']} → {new_name}")
     

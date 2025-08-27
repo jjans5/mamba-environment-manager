@@ -205,7 +205,8 @@ class EnvironmentManager:
             return None
     
     def generate_new_name(self, old_name: str, python_version: Optional[str], 
-                         r_version: Optional[str], existing_names: Optional[List[str]] = None) -> str:
+                         r_version: Optional[str], existing_names: Optional[List[str]] = None,
+                         yaml_file: Optional[Path] = None) -> str:
         """
         Generate a new environment name based on naming convention with smart conflict resolution
         
@@ -214,6 +215,7 @@ class EnvironmentManager:
             python_version: Python version (e.g., "3.9")
             r_version: R version (e.g., "4.1")
             existing_names: List of existing environment names to avoid conflicts
+            yaml_file: Path to YAML file for package version extraction
             
         Returns:
             New environment name in lowercase with version suffix
@@ -224,19 +226,41 @@ class EnvironmentManager:
         # Convert to lowercase
         base_name = old_name.lower()
         
-        # Check if name already contains version patterns
-        base_name = self._clean_existing_versions(base_name)
+        # Check if name already contains version patterns and clean them
+        cleaned_base = self._clean_existing_versions(base_name)
         
-        # Build new name with version suffixes
-        new_name = base_name
+        # Extract package versions if YAML file is provided
+        package_versions = {}
+        if yaml_file and yaml_file.exists():
+            package_versions = self._extract_package_versions_from_yaml(yaml_file, old_name)
         
-        # Add Python version if available and not already present
-        if python_version and not self._has_python_version(base_name):
+        # Start with cleaned base name
+        new_name = cleaned_base
+        
+        # Add package versions first (before language versions)
+        if package_versions:
+            new_name = self._add_package_versions_to_name(new_name, package_versions)
+        
+        # Check if we should add Python version
+        # Don't add if already present in original name or if version is already in cleaned name
+        should_add_python = (
+            python_version and 
+            not self._has_python_version(base_name) and
+            not self._version_already_in_name(new_name, python_version, 'python')
+        )
+        
+        if should_add_python and python_version:
             py_suffix = f"_py{python_version.replace('.', '')}"
             new_name += py_suffix
         
-        # Add R version if available and not already present  
-        if r_version and not self._has_r_version(base_name):
+        # Check if we should add R version
+        should_add_r = (
+            r_version and 
+            not self._has_r_version(base_name) and
+            not self._version_already_in_name(new_name, r_version, 'r')
+        )
+        
+        if should_add_r and r_version:
             r_suffix = f"_r{r_version.replace('.', '')}"
             new_name += r_suffix
         
@@ -248,6 +272,48 @@ class EnvironmentManager:
             counter += 1
         
         return new_name
+    
+    def _version_already_in_name(self, name: str, version: str, lang_type: str) -> bool:
+        """
+        Check if a specific version is already present in the name
+        
+        Args:
+            name: Environment name to check
+            version: Version string (e.g., "3.10")
+            lang_type: Either "python" or "r"
+            
+        Returns:
+            True if version is already present
+        """
+        import re
+        
+        # Convert version formats
+        version_nodot = version.replace('.', '')
+        version_patterns = [
+            version,           # 3.10
+            version_nodot,     # 310
+        ]
+        
+        for ver_pattern in version_patterns:
+            if lang_type == 'python':
+                patterns = [
+                    rf'_py{re.escape(ver_pattern)}(?:_|$)',
+                    rf'_python{re.escape(ver_pattern)}(?:_|$)',
+                    rf'py{re.escape(ver_pattern)}(?:_|$)',
+                    rf'_{re.escape(version)}(?:_|$)',  # Direct version match
+                ]
+            else:  # r
+                patterns = [
+                    rf'_r{re.escape(ver_pattern)}(?:_|$)',
+                    rf'r{re.escape(ver_pattern)}(?:_|$)',
+                    rf'_{re.escape(version)}(?:_|$)',  # Direct version match
+                ]
+            
+            for pattern in patterns:
+                if re.search(pattern, name, re.IGNORECASE):
+                    return True
+        
+        return False
     
     def _clean_existing_versions(self, name: str) -> str:
         """
@@ -261,7 +327,7 @@ class EnvironmentManager:
         """
         import re
         
-        # Remove common version patterns
+        # Remove common version patterns - more comprehensive
         patterns = [
             r'_py\d+(\.\d+)?',          # _py3.10, _py310
             r'_python\d+(\.\d+)?',      # _python3.10
@@ -270,16 +336,20 @@ class EnvironmentManager:
             r'py\d+(\.\d+)?$',          # py310 at end
             r'python\d+(\.\d+)?$',      # python310 at end
             r'r\d+(\.\d+)?$',           # r42 at end
-            r'_\d+\.\d+$',              # _3.10, _4.2 at end
+            r'_\d+\.\d+(?=_|$)',        # _3.10, _4.2 (but keep if part of package name)
             r'_v\d+$',                  # _v1, _v2 version suffixes
+            # More specific patterns to avoid duplication
+            r'_(\d+)\.(\d+)_py\1\2',    # Remove _3.10_py310 duplication
+            r'_(\d+)\.(\d+)_r\1\2',     # Remove _4.2_r42 duplication
         ]
         
         cleaned_name = name
         for pattern in patterns:
             cleaned_name = re.sub(pattern, '', cleaned_name, flags=re.IGNORECASE)
         
-        # Clean up any trailing underscores
-        cleaned_name = cleaned_name.rstrip('_')
+        # Clean up any trailing underscores or double underscores
+        cleaned_name = re.sub(r'_+', '_', cleaned_name)  # Multiple underscores to single
+        cleaned_name = cleaned_name.strip('_')
         
         # If name becomes empty or too short, use original
         if len(cleaned_name) < 2:
@@ -307,6 +377,131 @@ class EnvironmentManager:
             r'r\d+$'
         ]
         return any(re.search(pattern, name, re.IGNORECASE) for pattern in patterns)
+    
+    def _extract_package_versions_from_yaml(self, yaml_file: Path, env_name: str) -> Dict[str, str]:
+        """
+        Extract key package versions from exported YAML file
+        
+        Args:
+            yaml_file: Path to the YAML environment file
+            env_name: Original environment name to guess relevant packages
+            
+        Returns:
+            Dictionary of package names and versions
+        """
+        try:
+            with open(yaml_file, 'r') as f:
+                env_data = yaml.safe_load(f)
+            
+            package_versions = {}
+            dependencies = env_data.get('dependencies', [])
+            
+            # Common package mappings for environment names
+            package_mappings = {
+                'scanpy': ['scanpy', 'scanpy-scripts'],
+                'harmony': ['harmonypy', 'harmony-pytorch', 'harmony'],
+                'scenic': ['pyscenic', 'scenic'],
+                'seurat': ['rpy2', 'seurat'],  # For R packages accessed via Python
+                'cistopic': ['pycistopic', 'cistopic'],
+                'cellrank': ['cellrank'],
+                'cellxgene': ['cellxgene'],
+                'napari': ['napari'],
+                'neuroglancer': ['neuroglancer'],
+                'nextflow': ['nextflow'],
+                'deeptools': ['deeptools'],
+                'biopython': ['biopython', 'bio'],
+                'elastix': ['elastix', 'itk-elastix'],
+                'pytorch': ['pytorch', 'torch'],
+                'tensorflow': ['tensorflow', 'tf'],
+                'keras': ['keras'],
+                'sklearn': ['scikit-learn', 'sklearn'],
+                'pandas': ['pandas'],
+                'numpy': ['numpy'],
+                'scipy': ['scipy'],
+                'matplotlib': ['matplotlib'],
+                'plotly': ['plotly'],
+                'jupyter': ['jupyter', 'jupyterlab'],
+            }
+            
+            # Extract package name from environment name
+            env_name_lower = env_name.lower()
+            
+            # Look for relevant packages based on environment name
+            relevant_packages = set()
+            for key, packages in package_mappings.items():
+                if key in env_name_lower:
+                    relevant_packages.update(packages)
+            
+            # Also check for package names directly mentioned in env name
+            for dep in dependencies:
+                if isinstance(dep, str):
+                    pkg_name = dep.split('=')[0].split('[')[0].strip()
+                    if any(pkg in env_name_lower for pkg in [pkg_name.lower()]):
+                        relevant_packages.add(pkg_name)
+            
+            # Extract versions for relevant packages
+            for dep in dependencies:
+                if isinstance(dep, str):
+                    # Handle conda package format: package=version=build or package=version
+                    parts = dep.split('=')
+                    if len(parts) >= 2:
+                        pkg_name = parts[0].strip()
+                        version = parts[1].strip()
+                        
+                        if pkg_name.lower() in [p.lower() for p in relevant_packages]:
+                            # Clean version (remove build info)
+                            clean_version = re.sub(r'^(\d+\.\d+).*', r'\1', version)
+                            package_versions[pkg_name.lower()] = clean_version
+                
+                elif isinstance(dep, dict) and 'pip' in dep:
+                    # Handle pip dependencies
+                    pip_deps = dep['pip']
+                    for pip_dep in pip_deps:
+                        if isinstance(pip_dep, str):
+                            # Handle pip format: package==version or package>=version
+                            match = re.match(r'([^=><]+)[=><]+([0-9.]+)', pip_dep)
+                            if match:
+                                pkg_name, version = match.groups()
+                                pkg_name = pkg_name.strip()
+                                if pkg_name.lower() in [p.lower() for p in relevant_packages]:
+                                    clean_version = re.sub(r'^(\d+\.\d+).*', r'\1', version)
+                                    package_versions[pkg_name.lower()] = clean_version
+            
+            return package_versions
+            
+        except Exception as e:
+            self.logger.warning(f"Could not extract package versions from {yaml_file}: {e}")
+            return {}
+    
+    def _add_package_versions_to_name(self, base_name: str, package_versions: Dict[str, str]) -> str:
+        """
+        Add relevant package versions to environment name
+        
+        Args:
+            base_name: Base environment name
+            package_versions: Dictionary of package versions
+            
+        Returns:
+            Name with package versions added
+        """
+        if not package_versions:
+            return base_name
+        
+        # Sort packages by name for consistent ordering
+        sorted_packages = sorted(package_versions.items())
+        
+        # Add up to 2 most relevant package versions to avoid overly long names
+        added_versions = []
+        for pkg_name, version in sorted_packages[:2]:
+            # Clean version to major.minor
+            clean_version = re.sub(r'^(\d+\.\d+).*', r'\1', version)
+            version_suffix = f"{pkg_name}{clean_version.replace('.', '')}"
+            added_versions.append(version_suffix)
+        
+        if added_versions:
+            return f"{base_name}_{'_'.join(added_versions)}"
+        
+        return base_name
     
     def create_environment_from_yaml(self, yaml_file: Path, new_name: str) -> bool:
         """
@@ -445,14 +640,23 @@ class EnvironmentManager:
             self.logger.error(f"Failed to export {env_name}, skipping...")
             return False
         
-        # Step 2: Generate new name
-        new_name = self.generate_new_name(env_name, python_version, r_version, existing_names)
+        # Step 2: Generate new name (now with package version detection)
+        new_name = self.generate_new_name(
+            env_name, python_version, r_version, existing_names, yaml_file
+        )
         self.logger.info(f"New environment name: {new_name}")
         
         # Show what was cleaned if original had versions
         cleaned_base = self._clean_existing_versions(env_name.lower())
         if cleaned_base != env_name.lower():
             self.logger.info(f"Cleaned base name: {env_name} -> {cleaned_base}")
+        
+        # Show package versions if detected
+        if yaml_file:
+            package_versions = self._extract_package_versions_from_yaml(yaml_file, env_name)
+            if package_versions:
+                pkg_info = ', '.join([f"{pkg}={ver}" for pkg, ver in package_versions.items()])
+                self.logger.info(f"Detected packages: {pkg_info}")
         
         # Step 3: Create new environment
         self.logger.info(f"{Fore.YELLOW}Step 2: Creating new environment...{Style.RESET_ALL}")
@@ -492,7 +696,17 @@ class EnvironmentManager:
         for i, env in enumerate(environments, 1):
             python_ver = env['python_version'] or 'Unknown'
             r_ver = env['r_version'] or 'None'
-            new_name = self.generate_new_name(env['name'], env['python_version'], env['r_version'], existing_names)
+            
+            # Quick export for package detection (for display only)
+            temp_yaml = None
+            try:
+                temp_yaml = self.export_environment(env['name'])
+            except:
+                pass  # Continue without package detection if export fails
+            
+            new_name = self.generate_new_name(
+                env['name'], env['python_version'], env['r_version'], existing_names, temp_yaml
+            )
             
             # Show if name will be cleaned
             cleaned_base = self._clean_existing_versions(env['name'].lower())
@@ -502,6 +716,14 @@ class EnvironmentManager:
             
             print(f"{i:2}. {name_info}")
             print(f"    Python: {python_ver}, R: {r_ver}")
+            
+            # Show package versions if detected
+            if temp_yaml:
+                package_versions = self._extract_package_versions_from_yaml(temp_yaml, env['name'])
+                if package_versions:
+                    pkg_info = ', '.join([f"{pkg}={ver}" for pkg, ver in list(package_versions.items())[:2]])
+                    print(f"    📦 Key packages: {pkg_info}")
+            
             print(f"    → {new_name}")
             if new_name.endswith('_v1') or '_v' in new_name.split('_')[-1]:
                 print(f"    {Fore.YELLOW}⚠ Conflict resolved with version suffix{Style.RESET_ALL}")
@@ -541,11 +763,16 @@ class EnvironmentManager:
         
         for env in environments:
             env_name = env['name']
+            
+            # Export temporarily for package version detection in preview
+            temp_yaml = self.export_environment(env_name)
+            
             new_name = self.generate_new_name(
                 env_name, 
                 env['python_version'], 
                 env['r_version'], 
-                existing_names
+                existing_names,
+                temp_yaml
             )
             
             print(f"📁 {env_name}")
@@ -554,6 +781,13 @@ class EnvironmentManager:
             py_ver = env['python_version'] or 'Not detected'
             r_ver = env['r_version'] or 'Not detected'
             print(f"   Python: {py_ver}, R: {r_ver}")
+            
+            # Show package versions if detected
+            if temp_yaml:
+                package_versions = self._extract_package_versions_from_yaml(temp_yaml, env_name)
+                if package_versions:
+                    pkg_info = ', '.join([f"{pkg}={ver}" for pkg, ver in package_versions.items()])
+                    print(f"   📦 Packages: {pkg_info}")
             
             # Show cleaning info
             cleaned_base = self._clean_existing_versions(env_name.lower())

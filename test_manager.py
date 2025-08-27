@@ -33,7 +33,8 @@ def test_basic_functionality():
                     env['name'], 
                     env['python_version'], 
                     env['r_version'],
-                    existing_names
+                    existing_names,
+                    None  # No YAML file for basic test
                 )
                 print(f"  -> Would rename to: {new_name}")
                 
