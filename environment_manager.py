@@ -417,7 +417,7 @@ class EnvironmentManager:
             # Extract package name from environment name
             env_name_lower = env_name.lower()
             
-            # Look for relevant packages based on environment name
+            # Look for relevant packages ONLY if they're mentioned in environment name
             relevant_packages = set()
             for key, packages in package_mappings.items():
                 if key in env_name_lower:
@@ -428,9 +428,8 @@ class EnvironmentManager:
             for dep in dependencies:
                 if isinstance(dep, str):
                     pkg_name = dep.split('=')[0].split('[')[0].strip()
-                    # Add package if it's mentioned in environment name OR if it's a key package
-                    if (any(pkg in env_name_lower for pkg in [pkg_name.lower()]) or 
-                        pkg_name.lower() in [p.lower() for p in relevant_packages]):
+                    # Only add package if it's mentioned in environment name
+                    if any(pkg in env_name_lower for pkg in [pkg_name.lower()]):
                         relevant_packages.add(pkg_name)
                 elif isinstance(dep, dict) and 'pip' in dep:
                     # Handle pip dependencies
@@ -438,30 +437,9 @@ class EnvironmentManager:
                     for pip_dep in pip_deps:
                         if isinstance(pip_dep, str):
                             pkg_name = re.split(r'[=><]', pip_dep)[0].strip()
-                            if (any(pkg in env_name_lower for pkg in [pkg_name.lower()]) or 
-                                pkg_name.lower() in [p.lower() for p in relevant_packages]):
+                            # Only add package if it's mentioned in environment name
+                            if any(pkg in env_name_lower for pkg in [pkg_name.lower()]):
                                 relevant_packages.add(pkg_name)
-            
-            # If no relevant packages found from name matching, check for any key packages in dependencies
-            # This helps with generic environment names like "data_analysis"
-            if not relevant_packages:
-                all_package_names = set()
-                for dep in dependencies:
-                    if isinstance(dep, str):
-                        pkg_name = dep.split('=')[0].split('[')[0].strip()
-                        all_package_names.add(pkg_name.lower())
-                    elif isinstance(dep, dict) and 'pip' in dep:
-                        pip_deps = dep['pip']
-                        for pip_dep in pip_deps:
-                            if isinstance(pip_dep, str):
-                                pkg_name = re.split(r'[=><]', pip_dep)[0].strip()
-                                all_package_names.add(pkg_name.lower())
-                
-                # Add any key packages that are present
-                for key_pkg_list in package_mappings.values():
-                    for key_pkg in key_pkg_list:
-                        if key_pkg.lower() in all_package_names:
-                            relevant_packages.add(key_pkg)
             
             # Extract versions for relevant packages
             for dep in dependencies:
@@ -520,7 +498,8 @@ class EnvironmentManager:
         added_versions = []
         for pkg_name, version in sorted_packages[:2]:
             # Check if package name (or similar) is already in the base name
-            # Handle cases like: scanpy vs scanpy_analysis, harmony vs harmonypy
+            # If it IS in the name, we WANT to add the version (this is the desired behavior)
+            # If it's NOT in the name, we skip it (don't add random packages)
             pkg_variations = [
                 pkg_name.lower(),
                 pkg_name.lower().replace('py', ''),  # harmonypy → harmony
@@ -529,14 +508,16 @@ class EnvironmentManager:
             ]
             
             # Check if any variation is in the base name
-            skip_package = False
+            package_in_name = False
             for variation in pkg_variations:
                 if variation in base_name.lower() and len(variation) > 2:  # Avoid single letters
-                    self.logger.debug(f"Skipping {pkg_name} - variation '{variation}' found in base name: {base_name}")
-                    skip_package = True
+                    self.logger.debug(f"Adding version for {pkg_name} - variation '{variation}' found in base name: {base_name}")
+                    package_in_name = True
                     break
             
-            if skip_package:
+            # Only add version if package is mentioned in the environment name
+            if not package_in_name:
+                self.logger.debug(f"Skipping {pkg_name} - not mentioned in environment name: {base_name}")
                 continue
                 
             # Clean version to support up to 3 digits (e.g., 1.9.1 → 191)
