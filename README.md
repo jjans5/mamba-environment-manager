@@ -12,6 +12,8 @@ A comprehensive Python tool for managing mamba/conda environments with automated
 - **Detailed Logging**: All operations logged to file with timestamps
 - **Interactive Mode**: User-friendly interface for selective processing
 - **Batch Mode**: Automated processing of all environments
+- **🆕 YAML Cleanup**: Remove old exported environment files to prevent clutter
+- **🆕 Jupyter Kernel Recreation**: Automatically update/create Jupyter kernels for environments
 
 ## Usage
 
@@ -23,6 +25,8 @@ This mode allows you to:
 - View all environments with their current and proposed new names
 - **Preview changes** before processing (no modifications made)
 - Choose to process all environments or select specific ones
+- **🆕 Clean up exported YAML files** (Option 4)
+- **🆕 Recreate Jupyter kernels** for Python/R environments (Option 5)
 - See real-time progress and results
 - Review smart naming decisions and conflict resolutions
 
@@ -37,6 +41,7 @@ Processes all environments automatically after confirmation.
 python test_manager.py             # Basic functionality test
 python test_smart_naming.py        # Test smart naming with real patterns  
 python test_package_detection.py   # Test package version detection
+python test_new_features.py        # Test new cleanup and kernel features
 ```
 Tests the functionality without making any changes.
 
@@ -146,15 +151,53 @@ Successfully removed environment py_jjans_3.10_scanpy
 ✓ Successfully processed py_jjans_3.10_scanpy -> py_jjans_scanpy_scanpy19_py310
 ```
 
+## New Features (v2.0)
+
+### YAML Cleanup Function
+Removes old exported environment files to prevent directory clutter:
+```python
+# Programmatic usage
+manager.cleanup_exported_yaml_files(confirm=False)  # No confirmation
+manager.cleanup_exported_yaml_files(confirm=True)   # With confirmation
+
+# Interactive menu: Option 4
+```
+
+### Jupyter Kernel Recreation
+Updates/creates Jupyter kernels for environments with Python or R:
+```python
+# Recreate kernels for all environments
+manager.recreate_jupyter_kernels()
+
+# Recreate kernels for specific environments
+manager.recreate_jupyter_kernels(['env1', 'env2'])
+
+# Interactive menu: Option 5
+```
+
+**Kernel Features:**
+- Preserves existing kernel configurations (display name, metadata, etc.)
+- Updates only the executable path to match environment location
+- Supports both Python (`ipykernel`) and R (`IRkernel`) environments
+- Creates kernels in user's local Jupyter directory
+- Handles kernel conflicts gracefully
+
+**Kernel Locations:**
+- **User kernels**: `~/.local/share/jupyter/kernels/`
+- **System kernels**: `/usr/local/share/jupyter/kernels/` (if accessible)
+- **macOS**: `~/Library/Jupyter/kernels/`
+
 ## Troubleshooting
 
 - **Mamba not found**: The tool automatically falls back to conda
 - **Export fails**: Check if the environment is corrupted or has dependency conflicts
 - **Import fails**: Review the exported YAML file for invalid dependencies
 - **Verification fails**: The new environment may have issues but won't be removed automatically
+- **Kernel creation fails**: Check if Jupyter is installed and kernel directories are writable
 
 ## Files Created
 
 - `exported_environments/`: YAML exports of original environments
-- `backup_environments/`: Additional backup location (future use)
+- `backup_environments/`: Installation/removal logs and additional backups
 - `environment_manager.log`: Detailed operation log
+- `~/.local/share/jupyter/kernels/`: Created Jupyter kernels

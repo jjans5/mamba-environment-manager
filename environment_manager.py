@@ -17,6 +17,7 @@ import logging
 import json
 import re
 import shutil
+import glob
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple, Union
@@ -191,6 +192,117 @@ class EnvironmentManager:
         except Exception as e:
             print(f"❌ {operation_name} failed with error: {e}")
             self.logger.error(f"Unexpected error running command: {e}")
+            raise
+    
+    def _run_command_with_progress_shell(self, cmd_str: str, operation_name: str = "Operation", log_file: Optional[Path] = None):
+        """
+        Run a shell command with real-time progress output for long operations
+        
+        Args:
+            cmd_str: Shell command string to run
+            operation_name: Name of the operation for progress messages
+            log_file: Optional path to log file for output
+            
+        Returns:
+            ProcessResult-like object with combined stdout/stderr
+        """
+        try:
+            self.logger.debug(f"Running shell command with progress: {cmd_str}")
+            print(f"🔄 {operation_name} in progress...")
+            
+            if log_file:
+                print(f"📝 Logging to: {log_file}")
+            
+            # Start the process using shell=True
+            process = subprocess.Popen(
+                cmd_str,
+                shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,  # Combine stderr with stdout
+                text=True,
+                bufsize=1,  # Line buffered
+                universal_newlines=True
+            )
+            
+            output_lines = []
+            last_progress_time = 0
+            import time
+            
+            # Prepare log file if specified
+            log_file_handle = None
+            if log_file:
+                log_file.parent.mkdir(parents=True, exist_ok=True)
+                log_file_handle = open(log_file, 'w')
+            
+            # Read output line by line
+            while True:
+                if process.stdout:
+                    line = process.stdout.readline()
+                    if line:
+                        output_lines.append(line.rstrip())
+                        
+                        # Write to log file if specified
+                        if log_file_handle:
+                            log_file_handle.write(line)
+                            log_file_handle.flush()
+                        
+                        current_time = time.time()
+                        
+                        # Show progress every 2 seconds or for important lines
+                        if (current_time - last_progress_time > 2.0 or 
+                            any(keyword in line.lower() for keyword in ['solving', 'downloading', 'extracting', 'installing', 'collecting', 'preparing', 'executing', 'verifying'])):
+                            
+                            # Clean and show the progress line
+                            clean_line = line.strip()
+                            if clean_line and not clean_line.startswith('#'):
+                                # Make certain progress lines more prominent
+                                if any(keyword in clean_line.lower() for keyword in ['solving environment', 'downloading and extracting', 'preparing transaction', 'executing transaction']):
+                                    print(f"📦 {clean_line}")
+                                elif 'done' in clean_line.lower():
+                                    print(f"✓  {clean_line}")
+                                else:
+                                    print(f"   {clean_line}")
+                                last_progress_time = current_time
+                
+                # Check if process has finished
+                if process.poll() is not None:
+                    break
+            
+            # Close log file if it was opened
+            if log_file_handle:
+                log_file_handle.close()
+            
+            # Wait for process to complete and get return code
+            return_code = process.wait()
+            
+            # Create a result object similar to subprocess.run
+            combined_output = '\n'.join(output_lines)
+            
+            # Create a simple result object
+            class ProcessResult:
+                def __init__(self, returncode: int, stdout: str, stderr: str = ""):
+                    self.returncode = returncode
+                    self.stdout = stdout
+                    self.stderr = stderr
+            
+            result = ProcessResult(return_code, combined_output)
+            
+            if return_code == 0:
+                print(f"✅ {operation_name} completed successfully!")
+                if log_file:
+                    print(f"📝 Full log saved to: {log_file}")
+            else:
+                print(f"❌ {operation_name} failed with exit code {return_code}")
+                self.logger.error(f"Shell command failed: {cmd_str}")
+                self.logger.error(f"Output: {combined_output}")
+                if log_file:
+                    print(f"📝 Error log saved to: {log_file}")
+            
+            return result
+            
+        except Exception as e:
+            print(f"❌ {operation_name} failed with error: {e}")
+            self.logger.error(f"Unexpected error running shell command: {e}")
             raise
     
     def list_environments(self) -> List[Dict[str, str]]:
@@ -993,13 +1105,14 @@ class EnvironmentManager:
         
         return base_name
     
-    def create_environment_from_yaml(self, yaml_file: Path, new_name: str) -> bool:
+    def create_environment_from_yaml(self, yaml_file: Path, new_name: str, log_to_file: bool = True) -> bool:
         """
         Create a new environment from a YAML file
         
         Args:
             yaml_file: Path to the YAML file
             new_name: Name for the new environment
+            log_to_file: Whether to log output to a file
             
         Returns:
             True if successful, False otherwise
@@ -1008,10 +1121,23 @@ class EnvironmentManager:
             # First, try to modify the YAML to use the new name
             self._update_yaml_name(yaml_file, new_name)
             
-            cmd = [self.cmd_base, "env", "create", "-f", str(yaml_file), "-n", new_name]
+            # Use shell command with 'yes |' to handle any potential prompts automatically
+            cmd_str = f"yes | {self.cmd_base} env create -f {yaml_file} -n {new_name}"
+            
+            # Prepare log file if requested
+            log_file = None
+            if log_to_file:
+                log_dir = Path("backup_environments")
+                log_dir.mkdir(exist_ok=True)
+                log_file = log_dir / f"install_{new_name}.log"
+                self.logger.info(f"Logging environment creation to {log_file}")
             
             # Use progress version for environment creation (it's slow)
-            result = self._run_command_with_progress(cmd, f"Creating environment '{new_name}'")
+            result = self._run_command_with_progress_shell(
+                cmd_str, 
+                f"Creating environment '{new_name}'",
+                log_file
+            )
             
             if result.returncode == 0:
                 self.logger.info(f"Successfully created environment {new_name}")
@@ -1080,21 +1206,35 @@ class EnvironmentManager:
             self.logger.error(f"Error verifying environment {env_name}: {e}")
             return False
     
-    def remove_environment(self, env_name: str) -> bool:
+    def remove_environment(self, env_name: str, log_to_file: bool = True) -> bool:
         """
         Remove an environment
         
         Args:
             env_name: Name of the environment to remove
+            log_to_file: Whether to log output to a file
             
         Returns:
             True if successful, False otherwise
         """
         try:
-            cmd = [self.cmd_base, "env", "remove", "-n", env_name, "--yes"]
+            # Use shell command with 'yes |' to handle any potential prompts automatically
+            cmd_str = f"yes | {self.cmd_base} env remove -n {env_name}"
+            
+            # Prepare log file if requested
+            log_file = None
+            if log_to_file:
+                log_dir = Path("backup_environments")
+                log_dir.mkdir(exist_ok=True)
+                log_file = log_dir / f"remove_{env_name}.log"
+                self.logger.info(f"Logging environment removal to {log_file}")
             
             # Use progress version for environment removal (can be slow for large environments)
-            result = self._run_command_with_progress(cmd, f"Removing environment '{env_name}'")
+            result = self._run_command_with_progress_shell(
+                cmd_str, 
+                f"Removing environment '{env_name}'",
+                log_file
+            )
             
             if result.returncode == 0:
                 self.logger.info(f"Successfully removed environment {env_name}")
@@ -1149,7 +1289,9 @@ class EnvironmentManager:
             
             # Remove the empty environment
             try:
-                result = self._run_command([self.cmd_base, "env", "remove", "-n", env_name, "-y"], check=False)
+                # Use shell command with 'yes |' for consistency
+                cmd_str = f"yes | {self.cmd_base} env remove -n {env_name}"
+                result = self._run_command_with_progress_shell(cmd_str, f"Removing empty environment '{env_name}'")
                 if result.returncode == 0:
                     self.logger.info(f"{Fore.GREEN}✓ Successfully removed empty environment: {env_name}{Style.RESET_ALL}")
                     return True
@@ -1286,9 +1428,11 @@ class EnvironmentManager:
         print("1. Process all environments")
         print("2. Select specific environments")  
         print("3. Preview mode (show changes without processing)")
-        print("4. Exit")
+        print("4. Clean up exported YAML files")
+        print("5. Recreate Jupyter kernels")
+        print("6. Exit")
         
-        choice = input("\nEnter your choice (1-4): ").strip()
+        choice = input("\nEnter your choice (1-6): ").strip()
         
         if choice == "1":
             self._process_all_environments(environments)
@@ -1297,7 +1441,64 @@ class EnvironmentManager:
         elif choice == "3":
             self._preview_changes(environments)
         elif choice == "4":
+            self.cleanup_exported_yaml_files()
+        elif choice == "5":
+            self._handle_kernel_recreation(environments)
+        elif choice == "6":
             print("Exiting...")
+            return
+        else:
+            print(f"{Fore.RED}Invalid choice!{Style.RESET_ALL}")
+
+    def _handle_kernel_recreation(self, environments: List[Dict[str, str]]):
+        """Handle kernel recreation with options for all or selected environments"""
+        print(f"\n{Fore.CYAN}=== Recreate Jupyter Kernels ==={Style.RESET_ALL}")
+        print("1. Recreate kernels for all environments")
+        print("2. Select specific environments")
+        print("3. Back to main menu")
+        
+        choice = input("\nEnter your choice (1-3): ").strip()
+        
+        if choice == "1":
+            self.recreate_jupyter_kernels()
+        elif choice == "2":
+            # Show environments with Python/R
+            valid_envs = []
+            print(f"\n{Fore.CYAN}Environments with Python or R:{Style.RESET_ALL}")
+            for i, env in enumerate(environments, 1):
+                if env['name'] in ['base', 'root']:
+                    continue
+                    
+                has_python = self._environment_has_python(env['path'])
+                has_r = self._environment_has_r(env['path'])
+                
+                if has_python or has_r:
+                    valid_envs.append(env)
+                    kernels = []
+                    if has_python:
+                        kernels.append("Python")
+                    if has_r:
+                        kernels.append("R")
+                    print(f"{len(valid_envs):2}. {env['name']} ({', '.join(kernels)})")
+            
+            if not valid_envs:
+                print(f"{Fore.YELLOW}No environments with Python or R kernels found{Style.RESET_ALL}")
+                return
+            
+            try:
+                selection = input(f"\nEnter environment numbers to process (e.g., 1,3-5 or 'all'): ").strip()
+                
+                if selection.lower() == 'all':
+                    selected_envs = [env['name'] for env in valid_envs]
+                else:
+                    indices = self._parse_selection(selection, len(valid_envs))
+                    selected_envs = [valid_envs[i-1]['name'] for i in indices]
+                
+                self.recreate_jupyter_kernels(selected_envs)
+                
+            except (ValueError, IndexError) as e:
+                print(f"{Fore.RED}Invalid selection: {e}{Style.RESET_ALL}")
+        elif choice == "3":
             return
         else:
             print(f"{Fore.RED}Invalid choice!{Style.RESET_ALL}")
@@ -1455,6 +1656,277 @@ class EnvironmentManager:
                 raise ValueError(f"Index {idx} is out of range (1-{max_num})")
         
         return sorted(list(indices))
+
+    def cleanup_exported_yaml_files(self, confirm: bool = True) -> bool:
+        """
+        Clean up YAML files in the exported_environments directory
+        
+        Args:
+            confirm: Whether to ask for confirmation before deletion
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            yaml_files = list(self.export_dir.glob("*.yml")) + list(self.export_dir.glob("*.yaml"))
+            
+            if not yaml_files:
+                print(f"{Fore.YELLOW}No YAML files found in {self.export_dir}{Style.RESET_ALL}")
+                return True
+            
+            print(f"\n{Fore.CYAN}Found {len(yaml_files)} YAML files in {self.export_dir}:{Style.RESET_ALL}")
+            for i, file in enumerate(yaml_files, 1):
+                print(f"{i:3d}. {file.name}")
+            
+            if confirm:
+                response = input(f"\n{Fore.YELLOW}Do you want to delete all these YAML files? (y/N): {Style.RESET_ALL}")
+                if response.lower() not in ['y', 'yes']:
+                    print(f"{Fore.YELLOW}Cleanup cancelled.{Style.RESET_ALL}")
+                    return False
+            
+            print(f"\n🗑️  Cleaning up YAML files...")
+            deleted_count = 0
+            
+            for yaml_file in yaml_files:
+                try:
+                    yaml_file.unlink()
+                    deleted_count += 1
+                    self.logger.info(f"Deleted YAML file: {yaml_file}")
+                except Exception as e:
+                    print(f"{Fore.RED}❌ Failed to delete {yaml_file.name}: {e}{Style.RESET_ALL}")
+                    self.logger.error(f"Failed to delete {yaml_file}: {e}")
+            
+            print(f"{Fore.GREEN}✅ Successfully deleted {deleted_count} YAML files{Style.RESET_ALL}")
+            self.logger.info(f"Cleanup completed: deleted {deleted_count} YAML files")
+            return True
+            
+        except Exception as e:
+            print(f"{Fore.RED}❌ Error during cleanup: {e}{Style.RESET_ALL}")
+            self.logger.error(f"Error during YAML cleanup: {e}")
+            return False
+
+    def recreate_jupyter_kernels(self, target_envs: Optional[List[str]] = None) -> bool:
+        """
+        Recreate Jupyter kernels for environments that have Python or R
+        
+        Args:
+            target_envs: List of specific environment names to process (None for all)
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            print(f"\n🔬 Recreating Jupyter kernels for environments...")
+            
+            # Get all environments
+            environments = self.list_environments()
+            if target_envs:
+                environments = [env for env in environments if env['name'] in target_envs]
+            
+            success_count = 0
+            total_count = 0
+            
+            for env_info in environments:
+                env_name = env_info['name']
+                env_path = env_info['path']
+                
+                # Skip base environment
+                if env_name in ['base', 'root']:
+                    continue
+                
+                # Check if environment has Python or R
+                has_python = self._environment_has_python(env_path)
+                has_r = self._environment_has_r(env_path)
+                
+                if not has_python and not has_r:
+                    continue
+                
+                total_count += 1
+                print(f"\n📦 Processing environment: {env_name}")
+                
+                # Handle Python kernel
+                if has_python:
+                    if self._recreate_python_kernel(env_name, env_path):
+                        print(f"  ✅ Python kernel recreated for {env_name}")
+                        success_count += 1
+                    else:
+                        print(f"  ❌ Failed to recreate Python kernel for {env_name}")
+                
+                # Handle R kernel  
+                if has_r:
+                    if self._recreate_r_kernel(env_name, env_path):
+                        print(f"  ✅ R kernel recreated for {env_name}")
+                        success_count += 1
+                    else:
+                        print(f"  ❌ Failed to recreate R kernel for {env_name}")
+            
+            if total_count == 0:
+                print(f"{Fore.YELLOW}No environments with Python or R kernels found{Style.RESET_ALL}")
+                return True
+            
+            print(f"\n{Fore.GREEN}✅ Kernel recreation completed: {success_count}/{total_count} successful{Style.RESET_ALL}")
+            self.logger.info(f"Kernel recreation completed: {success_count}/{total_count} successful")
+            return success_count > 0
+            
+        except Exception as e:
+            print(f"{Fore.RED}❌ Error recreating kernels: {e}{Style.RESET_ALL}")
+            self.logger.error(f"Error recreating kernels: {e}")
+            return False
+
+    def _environment_has_python(self, env_path: str) -> bool:
+        """Check if environment has Python installed"""
+        python_paths = [
+            Path(env_path) / "bin" / "python",
+            Path(env_path) / "bin" / "python3",
+            Path(env_path) / "Scripts" / "python.exe",  # Windows
+        ]
+        return any(path.exists() for path in python_paths)
+
+    def _environment_has_r(self, env_path: str) -> bool:
+        """Check if environment has R installed"""
+        r_paths = [
+            Path(env_path) / "bin" / "R",
+            Path(env_path) / "Scripts" / "R.exe",  # Windows
+        ]
+        return any(path.exists() for path in r_paths)
+
+    def _recreate_python_kernel(self, env_name: str, env_path: str) -> bool:
+        """Recreate Python kernel for an environment"""
+        try:
+            # Find Python executable
+            python_paths = [
+                Path(env_path) / "bin" / "python",
+                Path(env_path) / "bin" / "python3",
+                Path(env_path) / "Scripts" / "python.exe",  # Windows
+            ]
+            
+            python_exe = None
+            for path in python_paths:
+                if path.exists():
+                    python_exe = str(path)
+                    break
+            
+            if not python_exe:
+                self.logger.error(f"No Python executable found in {env_path}")
+                return False
+            
+            # Get kernel directory
+            kernel_dir = self._get_kernel_dir(env_name)
+            
+            # Check if kernel already exists and read existing config
+            kernel_json_path = kernel_dir / "kernel.json"
+            existing_config = {}
+            
+            if kernel_json_path.exists():
+                try:
+                    with open(kernel_json_path, 'r') as f:
+                        existing_config = json.load(f)
+                except Exception as e:
+                    self.logger.warning(f"Could not read existing kernel config: {e}")
+            
+            # Create kernel directory
+            kernel_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Prepare kernel configuration, preserving existing settings but updating path
+            kernel_config = {
+                "argv": [python_exe, "-m", "ipykernel_launcher", "-f", "{connection_file}"],
+                "display_name": existing_config.get("display_name", f"Python ({env_name})"),
+                "language": "python",
+                "metadata": existing_config.get("metadata", {"debugger": True})
+            }
+            
+            # Preserve any additional fields from existing config
+            for key, value in existing_config.items():
+                if key not in kernel_config:
+                    kernel_config[key] = value
+            
+            # Write kernel configuration
+            with open(kernel_json_path, 'w') as f:
+                json.dump(kernel_config, f, indent=2)
+            
+            self.logger.info(f"Recreated Python kernel for {env_name} at {kernel_dir}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error recreating Python kernel for {env_name}: {e}")
+            return False
+
+    def _recreate_r_kernel(self, env_name: str, env_path: str) -> bool:
+        """Recreate R kernel for an environment"""
+        try:
+            # Find R executable
+            r_paths = [
+                Path(env_path) / "bin" / "R",
+                Path(env_path) / "Scripts" / "R.exe",  # Windows
+            ]
+            
+            r_exe = None
+            for path in r_paths:
+                if path.exists():
+                    r_exe = str(path)
+                    break
+            
+            if not r_exe:
+                self.logger.error(f"No R executable found in {env_path}")
+                return False
+            
+            # Get kernel directory
+            kernel_dir = self._get_kernel_dir(f"ir_{env_name}")
+            
+            # Check if kernel already exists and read existing config
+            kernel_json_path = kernel_dir / "kernel.json"
+            existing_config = {}
+            
+            if kernel_json_path.exists():
+                try:
+                    with open(kernel_json_path, 'r') as f:
+                        existing_config = json.load(f)
+                except Exception as e:
+                    self.logger.warning(f"Could not read existing kernel config: {e}")
+            
+            # Create kernel directory
+            kernel_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Prepare kernel configuration, preserving existing settings but updating path
+            kernel_config = {
+                "argv": [r_exe, "--slave", "-e", "IRkernel::main()", "--args", "{connection_file}"],
+                "display_name": existing_config.get("display_name", f"R ({env_name})"),
+                "language": "R",
+                "metadata": existing_config.get("metadata", {})
+            }
+            
+            # Preserve any additional fields from existing config
+            for key, value in existing_config.items():
+                if key not in kernel_config:
+                    kernel_config[key] = value
+            
+            # Write kernel configuration
+            with open(kernel_json_path, 'w') as f:
+                json.dump(kernel_config, f, indent=2)
+            
+            self.logger.info(f"Recreated R kernel for {env_name} at {kernel_dir}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error recreating R kernel for {env_name}: {e}")
+            return False
+
+    def _get_kernel_dir(self, kernel_name: str) -> Path:
+        """Get the kernel directory path for a given kernel name"""
+        # Try different possible kernel directories
+        possible_dirs = [
+            Path.home() / ".local" / "share" / "jupyter" / "kernels" / kernel_name,
+            Path.home() / "Library" / "Jupyter" / "kernels" / kernel_name,  # macOS
+            Path("/usr/local/share/jupyter/kernels") / kernel_name,
+        ]
+        
+        # Use the first existing parent directory, or default to user local
+        for directory in possible_dirs:
+            if directory.parent.exists():
+                return directory
+        
+        # Default to user local directory
+        return possible_dirs[0]
 
 
 def main():
