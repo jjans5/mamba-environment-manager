@@ -27,6 +27,16 @@ from colorama import init, Fore, Style
 # Import the new YAML analyzer
 from yaml_analyzer import YAMLAnalyzer
 
+# Import new utilities
+try:
+    from utils.environment_cloner import EnvironmentCloner
+    from utils.simple_log_analyzer import debug_environment_failure, analyze_failures
+except ImportError:
+    # Fallback if utils not in path
+    EnvironmentCloner = None
+    debug_environment_failure = None
+    analyze_failures = None
+
 # Initialize colorama for cross-platform colored output
 init(autoreset=True)
 
@@ -1434,9 +1444,12 @@ class EnvironmentManager:
         print("4. Analyze exported YAML files")
         print("5. Clean up YAML files")
         print("6. Recreate Jupyter kernels")
-        print("7. Exit")
+        print("7. Clone environment (conda-pack or YAML)")
+        print("8. Debug environment failures")
+        print("9. Analyze log failures")
+        print("10. Exit")
         
-        choice = input("\nEnter your choice (1-7): ").strip()
+        choice = input("\nEnter your choice (1-10): ").strip()
         
         if choice == "1":
             self._process_all_environments(environments)
@@ -1451,6 +1464,12 @@ class EnvironmentManager:
         elif choice == "6":
             self._handle_kernel_recreation(environments)
         elif choice == "7":
+            self._handle_environment_cloning(environments)
+        elif choice == "8":
+            self._handle_environment_debugging()
+        elif choice == "9":
+            self._handle_log_analysis()
+        elif choice == "10":
             print("Exiting...")
             return
         else:
@@ -1984,6 +2003,91 @@ class EnvironmentManager:
         
         # Default to user local directory
         return possible_dirs[0]
+
+    def _handle_environment_cloning(self, environments: List[Dict[str, str]]):
+        """Handle environment cloning with conda-pack or YAML"""
+        if EnvironmentCloner is None:
+            print(f"{Fore.RED}Environment cloner not available. Check utils/environment_cloner.py{Style.RESET_ALL}")
+            return
+        
+        print(f"\n{Fore.CYAN}=== Clone Environment ==={Style.RESET_ALL}")
+        
+        # Show available environments
+        print("Available environments:")
+        for i, env in enumerate(environments, 1):
+            print(f"{i:2}. {env['name']} (Python: {env['python_version'] or 'Unknown'})")
+        
+        # Get user input
+        try:
+            choice = input("\nEnter environment number to clone: ").strip()
+            env_index = int(choice) - 1
+            
+            if env_index < 0 or env_index >= len(environments):
+                print(f"{Fore.RED}Invalid selection!{Style.RESET_ALL}")
+                return
+            
+            source_env = environments[env_index]['name']
+            
+        except ValueError:
+            # Maybe they entered an environment name directly
+            source_env = choice
+            if not any(env['name'] == source_env for env in environments):
+                print(f"{Fore.RED}Environment '{source_env}' not found!{Style.RESET_ALL}")
+                return
+        
+        # Get new name
+        new_name = input(f"Enter new environment name (or 'auto' for smart naming): ").strip()
+        if not new_name:
+            new_name = "auto"
+        
+        # Choose method
+        print("\nCloning methods:")
+        print("1. conda-pack (recommended - exact replication)")
+        print("2. YAML export/import (cross-platform compatible)")
+        print("3. Auto (conda-pack if available, otherwise YAML)")
+        
+        method_choice = input("Choose method (1-3): ").strip()
+        method_map = {"1": "conda-pack", "2": "yaml", "3": "auto"}
+        method = method_map.get(method_choice, "auto")
+        
+        try:
+            cloner = EnvironmentCloner()
+            result = cloner.clone_environment(source_env, new_name, method)
+            print(f"{Fore.GREEN}✅ Clone completed: {result}{Style.RESET_ALL}")
+        except Exception as e:
+            print(f"{Fore.RED}❌ Clone failed: {e}{Style.RESET_ALL}")
+            self.logger.error(f"Environment clone failed: {e}")
+
+    def _handle_environment_debugging(self):
+        """Handle environment-specific debugging"""
+        if debug_environment_failure is None:
+            print(f"{Fore.RED}Debug function not available. Check utils/simple_log_analyzer.py{Style.RESET_ALL}")
+            return
+        
+        print(f"\n{Fore.CYAN}=== Debug Environment Failures ==={Style.RESET_ALL}")
+        
+        env_name = input("Enter environment name to debug: ").strip()
+        if not env_name:
+            print(f"{Fore.RED}Please enter an environment name{Style.RESET_ALL}")
+            return
+        
+        try:
+            debug_environment_failure(env_name, self.log_file)
+        except Exception as e:
+            print(f"{Fore.RED}❌ Debug failed: {e}{Style.RESET_ALL}")
+
+    def _handle_log_analysis(self):
+        """Handle general log analysis"""
+        if analyze_failures is None:
+            print(f"{Fore.RED}Analysis function not available. Check utils/simple_log_analyzer.py{Style.RESET_ALL}")
+            return
+        
+        print(f"\n{Fore.CYAN}=== Analyze All Log Failures ==={Style.RESET_ALL}")
+        
+        try:
+            analyze_failures(self.log_file)
+        except Exception as e:
+            print(f"{Fore.RED}❌ Analysis failed: {e}{Style.RESET_ALL}")
 
 
 def main():

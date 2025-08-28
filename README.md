@@ -1,42 +1,54 @@
 # Mamba Environment Manager
 
-A comprehensive Python tool for managing mamba/conda environments with automated reinstallation and renaming capabilities.
+A comprehensive Python tool for managing mamba/conda environments with automated reinstallation, renaming, cloning, and debugging capabilities.
 
 ## Project Structure
 
 ```
-├── environment_manager.py      # Main environment management tool
-├── yaml_analyzer.py           # YAML file analysis and cleanup utility
-├── batch_process.py           # Batch processing script
-├── README.md                  # This documentation
-├── requirements.txt           # Python dependencies
-├── tests/                     # All test files
-│   ├── test_manager.py       # Core functionality tests
-│   ├── test_smart_naming.py  # Naming convention tests
-│   └── ...                   # Additional test files
-├── utils/                     # Utility and debug scripts
-│   ├── demo_new_features.py  # Feature demonstrations
-│   ├── debug_*.py           # Debug utilities
-│   └── ...                   # Additional utilities
-├── docs/                      # Documentation and examples
+├── environment_manager.py         # Main environment management tool
+├── yaml_analyzer.py              # YAML file analysis and cleanup utility
+├── batch_process.py              # Batch processing script
+├── README.md                     # This documentation
+├── requirements.txt              # Python dependencies
+├── tests/                        # All test files
+│   ├── test_manager.py          # Core functionality tests
+│   ├── test_smart_naming.py     # Naming convention tests
+│   └── ...                      # Additional test files
+├── utils/                        # Utility and debug scripts
+│   ├── environment_cloner.py    # 🆕 Environment cloning tool
+│   ├── simple_log_analyzer.py   # 🆕 Log analysis and debugging
+│   ├── demo_new_features.py     # Feature demonstrations
+│   ├── debug_*.py              # Debug utilities
+│   └── ...                      # Additional utilities
+├── docs/                         # Documentation and examples
 │   └── environment_manager_demo.ipynb  # Jupyter notebook demo
-├── exported_environments/     # YAML exports (auto-created)
-└── backup_environments/       # Operation logs (auto-created)
+├── exported_environments/        # YAML exports (auto-created)
+├── cloned_environments/          # 🆕 conda-pack archives (auto-created)
+└── backup_environments/          # Operation logs (auto-created)
 ```
 
 ## Features
 
+### Core Environment Management
 - **Export & Reinstall**: Export broken environments to YAML files and reinstall them
 - **Smart Renaming**: Rename environments to lowercase with Python/R version suffixes
 - **Verification**: Verify successful installation before cleanup
 - **Safe Cleanup**: Remove old environments only after successful reinstall
 - **Error Handling**: Comprehensive error handling and graceful recovery
 - **Detailed Logging**: All operations logged to file with timestamps
+
+### Interactive & Analysis Tools
 - **Interactive Mode**: User-friendly interface for selective processing
 - **Batch Mode**: Automated processing of all environments
 - **🆕 YAML Analysis**: Analyze exported files for duplicates and conflicts
 - **🆕 Smart Cleanup**: Remove duplicate YAML files intelligently
 - **🆕 Jupyter Kernel Recreation**: Automatically update/create Jupyter kernels for environments
+
+### 🆕 Advanced Features
+- **🆕 Environment Cloning**: Clone environments using conda-pack or YAML export
+- **🆕 Failure Debugging**: Detailed analysis of environment failures with context
+- **🆕 Log Analysis**: Comprehensive log analysis to identify patterns and issues
+- **🆕 conda-pack Integration**: Create portable environment archives for deployment
 
 ## Usage
 
@@ -48,11 +60,41 @@ This mode allows you to:
 - View all environments with their current and proposed new names
 - **Preview changes** before processing (no modifications made)
 - Choose to process all environments or select specific ones
-- **🆕 Analyze YAML files** for duplicates and conflicts (Option 4)
-- **🆕 Clean up YAML files** with smart duplicate detection (Option 5)
-- **🆕 Recreate Jupyter kernels** for Python/R environments (Option 6)
+- **🆕 Clone environments** with conda-pack or YAML (Option 7)
+- **🆕 Debug specific environment failures** (Option 8)
+- **🆕 Analyze all log failures** (Option 9)
+- **Analyze YAML files** for duplicates and conflicts (Option 4)
+- **Clean up YAML files** with smart duplicate detection (Option 5)
+- **Recreate Jupyter kernels** for Python/R environments (Option 6)
 - See real-time progress and results
 - Review smart naming decisions and conflict resolutions
+
+### 🆕 Environment Cloning (Standalone)
+```bash
+# Clone with conda-pack (exact replication, recommended)
+python utils/environment_cloner.py myenv new_env --method conda-pack
+
+# Clone with YAML export (cross-platform compatible)
+python utils/environment_cloner.py myenv new_env --method yaml
+
+# Auto-detect method and smart naming
+python utils/environment_cloner.py myenv auto
+
+# Clone from environment path
+python utils/environment_cloner.py /path/to/env auto --method conda-pack
+```
+
+### 🆕 Failure Analysis & Debugging
+```bash
+# Analyze all failures in log
+python utils/simple_log_analyzer.py
+
+# Debug specific environment
+python utils/simple_log_analyzer.py myenv
+
+# Interactive debugging session
+python utils/simple_log_analyzer.py --debug
+```
 
 ### YAML Analysis (Standalone)
 ```bash
@@ -83,6 +125,36 @@ python tests/test_package_detection.py   # Test package version detection
 python tests/test_new_features.py        # Test new cleanup and kernel features
 ```
 Tests the functionality without making any changes.
+
+## 🆕 Environment Cloning with conda-pack
+
+The environment cloner supports two methods:
+
+### 1. conda-pack Method (Recommended)
+- **Exact replication** of environments including all packages, versions, and dependencies
+- **Portable archives** that can be deployed on any compatible system
+- **No conda/python required** on target machine initially
+- **Faster deployment** as packages are pre-compiled
+
+```bash
+# Install conda-pack if not available
+conda install conda-pack
+
+# Create portable archive
+python utils/environment_cloner.py myenv deployment_env --method conda-pack
+
+# On target machine
+mkdir -p deployment_env
+tar -xzf cloned_environments/deployment_env.tar.gz -C deployment_env
+source deployment_env/bin/activate
+conda-unpack
+```
+
+### 2. YAML Method
+- **Cross-platform compatible** environments
+- **Latest package versions** (may differ from source)
+- **Requires conda** on target machine
+- **Better for updating** dependencies
 
 ## Environment Naming Convention
 
@@ -171,6 +243,79 @@ All operations are logged to `environment_manager.log` with:
 - **Error Recovery**: Failed operations don't affect other environments
 - **User Confirmation**: Interactive prompts for destructive operations
 - **Detailed Logging**: Complete audit trail of all operations
+
+## 🆕 Troubleshooting & Debugging
+
+### Analyze Environment Failures
+If environments fail to export or reinstall, use the debugging tools:
+
+```bash
+# See overview of all failures
+python utils/simple_log_analyzer.py
+
+# Debug specific environment with detailed context
+python utils/simple_log_analyzer.py myenv
+
+# Interactive debugging session
+python utils/simple_log_analyzer.py --debug
+```
+
+### Common Issues & Solutions
+
+1. **Environment Export Fails**
+   ```bash
+   # Check environment exists and is accessible
+   conda env list | grep myenv
+   conda list -n myenv
+   ```
+
+2. **Permission Errors**
+   ```bash
+   # Check write permissions for output directories
+   ls -la exported_environments/
+   ls -la cloned_environments/
+   ```
+
+3. **Package Conflicts During Reinstall**
+   ```bash
+   # Review the exported YAML for conflicts
+   python yaml_analyzer.py --analyze
+   # Edit the YAML file manually if needed
+   ```
+
+4. **conda-pack Errors**
+   ```bash
+   # Install or update conda-pack
+   conda install conda-pack
+   conda update conda-pack
+   ```
+
+### Log Analysis Examples
+```bash
+# Find all ERROR entries
+grep "ERROR" environment_manager.log
+
+# Search for specific environment issues
+grep -A 5 -B 5 "myenv" environment_manager.log
+
+# Count success vs failure rates
+grep -c "Successfully" environment_manager.log
+grep -c "Failed\|ERROR" environment_manager.log
+```
+
+## Dependencies
+
+Install required packages:
+```bash
+pip install -r requirements.txt
+```
+
+Required:
+- `PyYAML` - YAML file processing
+- `colorama` - Colored console output
+
+Optional but recommended:
+- `conda-pack` - For environment cloning (`conda install conda-pack`)
 
 ## Example Output
 
