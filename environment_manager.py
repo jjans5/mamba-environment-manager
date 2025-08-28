@@ -1389,15 +1389,15 @@ class EnvironmentManager:
         
         while True:
             print(f"\n{Fore.YELLOW}Environment Management Options:{Style.RESET_ALL}")
-            print("1. 📦 Backup environment (preserve original)")
-            print("2. 🔄 Clone environment (backup + rename/recreate)")  
-            print("3. 📊 Analyze exported YAML files for duplicates")
-            print("4. ⚡ Batch processing (multiple environments)")
-            print("5. 🐛 Debug and analyze failures")
-            print("6. 🔬 Recreate Jupyter kernels")
-            print("7. 📋 List all environments")
-            print("8. 🧹 Clean up backup files (YAML/conda-pack)")
-            print("9. ❌ Exit")
+            print("1. [BACKUP] Backup environment (preserve original)")
+            print("2. [CLONE]  Clone environment (backup + rename/recreate)")  
+            print("3. [ANALYZE] Analyze exported YAML files for duplicates")
+            print("4. [BATCH]  Batch processing (multiple environments)")
+            print("5. [DEBUG]  Debug and analyze failures")
+            print("6. [KERNEL] Recreate Jupyter kernels")
+            print("7. [LIST]   List all environments")
+            print("8. [CLEAN]  Clean up backup files (YAML/conda-pack)")
+            print("9. [EXIT]   Exit")
             
             choice = input(f"\n{Fore.CYAN}Enter your choice (1-9): {Style.RESET_ALL}").strip()
             
@@ -1427,12 +1427,12 @@ class EnvironmentManager:
             if choice != "9":
                 continue_choice = input(f"\n{Fore.CYAN}Continue with another operation? (Y/n): {Style.RESET_ALL}").strip().lower()
                 if continue_choice in ['n', 'no']:
-                    print("👋 Goodbye!")
-                    break
+                print("Goodbye!")
+                break
 
     def _handle_backup_environment(self):
         """Handle backing up environments (preserve original)"""
-        print(f"\n{Fore.CYAN}=== 📦 Backup Environment ==={Style.RESET_ALL}")
+        print(f"\n{Fore.CYAN}=== [BACKUP] Backup Environment ==={Style.RESET_ALL}")
         print("Backup an environment without modifying the original.")
         
         # Get environment selection
@@ -1450,7 +1450,7 @@ class EnvironmentManager:
 
     def _handle_clone_environment(self):
         """Handle cloning environments (backup + rename/recreate)"""
-        print(f"\n{Fore.CYAN}=== 🔄 Clone Environment ==={Style.RESET_ALL}")
+        print(f"\n{Fore.CYAN}=== [CLONE] Clone Environment ==={Style.RESET_ALL}")
         print("Clone an environment with a new name and optionally remove the original.")
         
         # Get single environment (cloning works on one at a time)
@@ -1476,7 +1476,7 @@ class EnvironmentManager:
 
     def _handle_analyze_yaml_files(self):
         """Handle YAML file analysis"""
-        print(f"\n{Fore.CYAN}=== 📊 Analyze YAML Files ==={Style.RESET_ALL}")
+        print(f"\n{Fore.CYAN}=== [ANALYZE] Analyze YAML Files ==={Style.RESET_ALL}")
         self.analyze_and_cleanup_yaml_files("analyze")
 
     def _handle_batch_processing(self):
@@ -1687,6 +1687,7 @@ class EnvironmentManager:
     def _process_clone(self, env_name, new_name, clone_method, remove_original):
         """Process clone operation"""
         try:
+            # Import and use environment cloner with better error handling
             from utils.environment_cloner import EnvironmentCloner
             cloner = EnvironmentCloner()
             
@@ -1697,6 +1698,7 @@ class EnvironmentManager:
                 else:
                     new_name = f"{env_name}_yaml"
             
+            print(f"[INFO] Starting clone operation for '{env_name}' -> '{new_name}'")
             success = cloner.clone_environment(env_name, new_name, method=clone_method)
             
             if success and remove_original:
@@ -1706,6 +1708,10 @@ class EnvironmentManager:
                     
         except ImportError:
             print(f"{Fore.RED}Environment cloner not available. Using fallback method.{Style.RESET_ALL}")
+            self._clone_fallback(env_name, new_name, clone_method, remove_original)
+        except Exception as e:
+            print(f"{Fore.RED}[ERROR] Clone operation failed: {e}{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}[INFO] Trying fallback method...{Style.RESET_ALL}")
             self._clone_fallback(env_name, new_name, clone_method, remove_original)
 
     def _handle_batch_backup(self):
@@ -1946,7 +1952,8 @@ class EnvironmentManager:
         """Unpack a conda-pack environment"""
         try:
             # Get conda info to find environments directory
-            result = subprocess.run("conda info --envs", shell=True, capture_output=True, text=True)
+            cmd = [self.cmd_base, "info", "--envs"]
+            result = self._run_command(cmd)
             
             # Parse conda envs output to find the base path
             lines = result.stdout.strip().split('\n')
@@ -1978,14 +1985,14 @@ class EnvironmentManager:
                 result2 = subprocess.run(unpack_cmd, shell=True, capture_output=True, text=True)
                 
                 if result2.returncode == 0:
-                    print(f"{Fore.GREEN}✅ Unpacked environment '{new_name}'{Style.RESET_ALL}")
+                    print(f"{Fore.GREEN}[SUCCESS] Unpacked environment '{new_name}'{Style.RESET_ALL}")
                     return True
                 else:
-                    print(f"{Fore.YELLOW}⚠️  Unpacked environment '{new_name}' but conda-unpack failed{Style.RESET_ALL}")
+                    print(f"{Fore.YELLOW}[WARNING] Unpacked environment '{new_name}' but conda-unpack failed{Style.RESET_ALL}")
                     print(f"You may need to manually run: cd {env_path} && ./bin/conda-unpack")
                     return True
             else:
-                print(f"{Fore.RED}❌ Failed to unpack environment '{new_name}'{Style.RESET_ALL}")
+                print(f"{Fore.RED}[ERROR] Failed to unpack environment '{new_name}'{Style.RESET_ALL}")
                 print(f"Error: {result.stderr}")
                 return False
                 

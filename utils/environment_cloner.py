@@ -32,10 +32,15 @@ class EnvironmentCloner:
     def _check_conda_pack(self):
         """Check if conda-pack is available."""
         try:
-            subprocess.run(['conda', 'pack', '--version'], capture_output=True, check=True)
-            return True
+            result = subprocess.run([self.conda_cmd, 'list', 'conda-pack'], 
+                                  capture_output=True, text=True)
+            if result.returncode == 0 and 'conda-pack' in result.stdout:
+                return True
+            else:
+                print("[WARNING] conda-pack not found. Install with: conda install conda-pack")
+                return False
         except (subprocess.CalledProcessError, FileNotFoundError):
-            print("⚠️  conda-pack not found. Install with: conda install conda-pack")
+            print("[WARNING] conda-pack not found. Install with: conda install conda-pack")
             return False
     
     def _get_environment_info(self, env_identifier):
@@ -48,20 +53,26 @@ class EnvironmentCloner:
             env_name = env_identifier
             # Get environment path
             try:
-                result = subprocess.run(
-                    [self.conda_cmd, 'info', '--envs'],
-                    capture_output=True, text=True, check=True
-                )
-                for line in result.stdout.split('\n'):
-                    if env_name in line and not line.startswith('#'):
-                        parts = line.split()
-                        if len(parts) >= 2:
-                            env_path = parts[-1]
-                            break
-                else:
+                result = subprocess.run([self.conda_cmd, 'env', 'list', '--json'], 
+                                      capture_output=True, text=True, check=True)
+                import json
+                env_data = json.loads(result.stdout)
+                
+                env_path = None
+                for path in env_data['envs']:
+                    if os.path.basename(path) == env_name:
+                        env_path = path
+                        break
+                
+                if not env_path:
                     raise ValueError(f"Environment '{env_name}' not found")
-            except subprocess.CalledProcessError as e:
-                raise RuntimeError(f"Failed to get environment info: {e}")
+                    
+            except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError) as e:
+                raise ValueError(f"Failed to get environment info: {e}")
+        
+        # Validate environment exists
+        if not os.path.exists(env_path):
+            raise ValueError(f"Environment path does not exist: {env_path}")
         
         # Get package list for version detection
         try:
@@ -90,6 +101,10 @@ class EnvironmentCloner:
         return {
             'name': env_name,
             'path': env_path,
+            'python_version': python_version,
+            'r_version': r_version,
+            'packages': packages
+        }
             'python_version': python_version,
             'r_version': r_version,
             'packages': packages
