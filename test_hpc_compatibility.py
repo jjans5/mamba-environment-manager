@@ -18,12 +18,12 @@ def test_conda_mamba():
         try:
             result = subprocess.run([cmd, '--version'], capture_output=True, text=True)
             if result.returncode == 0:
-                print(f"✓ {cmd} available: {result.stdout.strip()}")
+                print(f"[OK] {cmd} available: {result.stdout.strip()}")
                 return cmd
             else:
-                print(f"✗ {cmd} not available")
+                print(f"[FAIL] {cmd} not available")
         except FileNotFoundError:
-            print(f"✗ {cmd} not found")
+            print(f"[FAIL] {cmd} not found")
     
     print("ERROR: Neither mamba nor conda found!")
     return None
@@ -40,7 +40,7 @@ def test_environment_listing(cmd):
             for line in lines:
                 if line.strip() and not line.startswith('#'):
                     env_count += 1
-            print(f"✓ Found {env_count} environments")
+            print(f"[OK] Found {env_count} environments")
             
             # Show first few environments
             for line in lines[:5]:
@@ -49,10 +49,10 @@ def test_environment_listing(cmd):
             
             return True
         else:
-            print(f"✗ Failed to list environments: {result.stderr}")
+            print(f"[FAIL] Failed to list environments: {result.stderr}")
             return False
     except Exception as e:
-        print(f"✗ Error: {e}")
+        print(f"[FAIL] Error: {e}")
         return False
 
 def test_environment_manager():
@@ -61,15 +61,15 @@ def test_environment_manager():
     
     try:
         import environment_manager
-        print("✓ Environment manager imported successfully")
+        print("[OK] Environment manager imported successfully")
         
         # Test basic initialization
         manager = environment_manager.EnvironmentManager()
-        print(f"✓ Manager initialized with: {manager.cmd_base}")
+        print(f"[OK] Manager initialized with: {manager.cmd_base}")
         
         return True
     except Exception as e:
-        print(f"✗ Import failed: {e}")
+        print(f"[FAIL] Import failed: {e}")
         return False
 
 def test_yaml_export():
@@ -88,17 +88,17 @@ def test_yaml_export():
             
             result = manager.export_environment(test_env)
             if result and result != "EMPTY":
-                print(f"✓ Export successful: {result}")
+                print(f"[OK] Export successful: {result}")
                 return True
             else:
-                print(f"✗ Export failed or environment empty")
+                print(f"[FAIL] Export failed or environment empty")
                 return False
         else:
-            print("✗ No environments found to test")
+            print("[FAIL] No environments found to test")
             return False
             
     except Exception as e:
-        print(f"✗ Export test failed: {e}")
+        print(f"[FAIL] Export test failed: {e}")
         return False
 
 def main():
@@ -125,7 +125,7 @@ def main():
         print("WARNING: YAML export test failed")
     
     print("\n" + "=" * 50)
-    print("🎉 Basic compatibility tests completed!")
+    print("[SUCCESS] Basic compatibility tests completed!")
     print("\nYou can now run:")
     print("  python environment_manager.py")
     print("\nFor your clone issue, try:")

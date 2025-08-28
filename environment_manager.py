@@ -1427,8 +1427,8 @@ class EnvironmentManager:
             if choice != "9":
                 continue_choice = input(f"\n{Fore.CYAN}Continue with another operation? (Y/n): {Style.RESET_ALL}").strip().lower()
                 if continue_choice in ['n', 'no']:
-                print("Goodbye!")
-                break
+                    print("Goodbye!")
+                    break
 
     def _handle_backup_environment(self):
         """Handle backing up environments (preserve original)"""
