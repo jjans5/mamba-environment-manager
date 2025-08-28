@@ -1385,9 +1385,62 @@ class EnvironmentManager:
     def run_interactive_mode(self):
         """Run the tool in interactive mode"""
         print(f"\n{Fore.CYAN}=== Mamba Environment Manager ==={Style.RESET_ALL}")
-        print("This tool will help you reinstall and rename your environments.\n")
+        print("This tool will help you manage your conda/mamba environments.\n")
         
-        # List all environments
+        while True:
+            print(f"\n{Fore.YELLOW}Options:{Style.RESET_ALL}")
+            print("1. Process all environments (export, rename, reinstall)")
+            print("2. Select specific environments for processing")  
+            print("3. Preview changes (show what would be renamed)")
+            print("4. Analyze exported YAML files")
+            print("5. Clean up YAML files")
+            print("6. Recreate Jupyter kernels")
+            print("7. Clone environment (conda-pack or YAML)")
+            print("8. Debug environment failures")
+            print("9. Analyze log failures")
+            print("10. List all environments")
+            print("11. Exit")
+            
+            choice = input("\nEnter your choice (1-11): ").strip()
+            
+            if choice == "1":
+                self._handle_process_all()
+            elif choice == "2":
+                self._handle_process_selected()
+            elif choice == "3":
+                self._handle_preview_changes()
+            elif choice == "4":
+                self._handle_yaml_analysis()
+            elif choice == "5":
+                self._handle_yaml_cleanup()
+            elif choice == "6":
+                self._handle_kernel_recreation()
+            elif choice == "7":
+                self._handle_environment_cloning()
+            elif choice == "8":
+                self._handle_environment_debugging()
+            elif choice == "9":
+                self._handle_log_analysis()
+            elif choice == "10":
+                self._handle_list_environments()
+            elif choice == "11":
+                print("Exiting...")
+                break
+            else:
+                print(f"{Fore.RED}Invalid choice!{Style.RESET_ALL}")
+                
+            # Ask if user wants to continue
+            if choice != "11":
+                continue_choice = input(f"\n{Fore.CYAN}Return to main menu? (y/N): {Style.RESET_ALL}").strip().lower()
+                if continue_choice != 'y':
+                    print("Exiting...")
+                    break
+
+    def _handle_list_environments(self):
+        """Handle listing and displaying all environments with details"""
+        print(f"\n{Fore.CYAN}=== Environment List ==={Style.RESET_ALL}")
+        
+        # Now we scan environments only when requested
         environments = self.list_environments()
         if not environments:
             print(f"{Fore.RED}No environments found!{Style.RESET_ALL}")
@@ -1436,47 +1489,30 @@ class EnvironmentManager:
             if new_name.endswith('_v1') or '_v' in new_name.split('_')[-1]:
                 print(f"    {Fore.YELLOW}⚠ Conflict resolved with version suffix{Style.RESET_ALL}")
             print()
-        
-        print(f"\n{Fore.YELLOW}Options:{Style.RESET_ALL}")
-        print("1. Process all environments")
-        print("2. Select specific environments")  
-        print("3. Preview mode (show changes without processing)")
-        print("4. Analyze exported YAML files")
-        print("5. Clean up YAML files")
-        print("6. Recreate Jupyter kernels")
-        print("7. Clone environment (conda-pack or YAML)")
-        print("8. Debug environment failures")
-        print("9. Analyze log failures")
-        print("10. Exit")
-        
-        choice = input("\nEnter your choice (1-10): ").strip()
-        
-        if choice == "1":
-            self._process_all_environments(environments)
-        elif choice == "2":
-            self._process_selected_environments(environments)
-        elif choice == "3":
-            self._preview_changes(environments)
-        elif choice == "4":
-            self._handle_yaml_analysis()
-        elif choice == "5":
-            self._handle_yaml_cleanup()
-        elif choice == "6":
-            self._handle_kernel_recreation(environments)
-        elif choice == "7":
-            self._handle_environment_cloning(environments)
-        elif choice == "8":
-            self._handle_environment_debugging()
-        elif choice == "9":
-            self._handle_log_analysis()
-        elif choice == "10":
-            print("Exiting...")
-            return
-        else:
-            print(f"{Fore.RED}Invalid choice!{Style.RESET_ALL}")
 
-    def _handle_kernel_recreation(self, environments: List[Dict[str, str]]):
-        """Handle kernel recreation with options for all or selected environments"""
+    def _handle_process_all(self):
+        """Handle processing all environments"""
+        print(f"\n{Fore.CYAN}=== Process All Environments ==={Style.RESET_ALL}")
+        environments = self._get_environments_for_processing()
+        if environments:
+            self._process_all_environments(environments)
+
+    def _handle_process_selected(self):
+        """Handle processing selected environments"""
+        print(f"\n{Fore.CYAN}=== Process Selected Environments ==={Style.RESET_ALL}")
+        environments = self._get_environments_for_processing()
+        if environments:
+            self._process_selected_environments(environments)
+
+    def _handle_preview_changes(self):
+        """Handle previewing changes"""
+        print(f"\n{Fore.CYAN}=== Preview Changes ==={Style.RESET_ALL}")
+        environments = self._get_environments_for_processing()
+        if environments:
+            self._preview_changes(environments)
+
+    def _handle_kernel_recreation(self):
+        """Handle kernel recreation (simplified - only when needed)"""
         print(f"\n{Fore.CYAN}=== Recreate Jupyter Kernels ==={Style.RESET_ALL}")
         print("1. Recreate kernels for all environments")
         print("2. Select specific environments")
@@ -1487,46 +1523,152 @@ class EnvironmentManager:
         if choice == "1":
             self.recreate_jupyter_kernels()
         elif choice == "2":
-            # Show environments with Python/R
-            valid_envs = []
-            print(f"\n{Fore.CYAN}Environments with Python or R:{Style.RESET_ALL}")
-            for i, env in enumerate(environments, 1):
-                if env['name'] in ['base', 'root']:
-                    continue
-                    
-                has_python = self._environment_has_python(env['path'])
-                has_r = self._environment_has_r(env['path'])
-                
-                if has_python or has_r:
-                    valid_envs.append(env)
-                    kernels = []
-                    if has_python:
-                        kernels.append("Python")
-                    if has_r:
-                        kernels.append("R")
-                    print(f"{len(valid_envs):2}. {env['name']} ({', '.join(kernels)})")
-            
-            if not valid_envs:
-                print(f"{Fore.YELLOW}No environments with Python or R kernels found{Style.RESET_ALL}")
-                return
-            
-            try:
-                selection = input(f"\nEnter environment numbers to process (e.g., 1,3-5 or 'all'): ").strip()
-                
-                if selection.lower() == 'all':
-                    selected_envs = [env['name'] for env in valid_envs]
-                else:
-                    indices = self._parse_selection(selection, len(valid_envs))
-                    selected_envs = [valid_envs[i-1]['name'] for i in indices]
-                
-                self.recreate_jupyter_kernels(selected_envs)
-                
-            except (ValueError, IndexError) as e:
-                print(f"{Fore.RED}Invalid selection: {e}{Style.RESET_ALL}")
+            environments = self._get_environments_for_processing()
+            if environments:
+                self._handle_kernel_recreation_selected(environments)
         elif choice == "3":
             return
         else:
             print(f"{Fore.RED}Invalid choice!{Style.RESET_ALL}")
+
+    def _handle_environment_cloning(self):
+        """Handle environment cloning (simplified - only list when needed)"""
+        if EnvironmentCloner is None:
+            print(f"{Fore.RED}Environment cloner not available. Check utils/environment_cloner.py{Style.RESET_ALL}")
+            return
+        
+        print(f"\n{Fore.CYAN}=== Clone Environment ==={Style.RESET_ALL}")
+        
+        # Only get basic environment list (no package detection)
+        environments = self.list_environments()
+        if not environments:
+            print(f"{Fore.RED}No environments found!{Style.RESET_ALL}")
+            return
+        
+        # Show available environments (simple list)
+        print("Available environments:")
+        for i, env in enumerate(environments, 1):
+            print(f"{i:2}. {env['name']} (Python: {env['python_version'] or 'Unknown'})")
+        
+        # Get user input
+        try:
+            choice = input("\nEnter environment number to clone: ").strip()
+            env_index = int(choice) - 1
+            
+            if env_index < 0 or env_index >= len(environments):
+                print(f"{Fore.RED}Invalid selection!{Style.RESET_ALL}")
+                return
+            
+            source_env = environments[env_index]['name']
+            
+        except ValueError:
+            # Maybe they entered an environment name directly
+            source_env = choice
+            if not any(env['name'] == source_env for env in environments):
+                print(f"{Fore.RED}Environment '{source_env}' not found!{Style.RESET_ALL}")
+                return
+        
+        # Get new name
+        new_name = input(f"Enter new environment name (or 'auto' for smart naming): ").strip()
+        if not new_name:
+            new_name = "auto"
+        
+        # Choose method
+        print("\nCloning methods:")
+        print("1. conda-pack (recommended - exact replication)")
+        print("2. YAML export/import (cross-platform compatible)")
+        print("3. Auto (conda-pack if available, otherwise YAML)")
+        
+        method_choice = input("Choose method (1-3): ").strip()
+        method_map = {"1": "conda-pack", "2": "yaml", "3": "auto"}
+        method = method_map.get(method_choice, "auto")
+        
+        try:
+            cloner = EnvironmentCloner()
+            result = cloner.clone_environment(source_env, new_name, method)
+            print(f"{Fore.GREEN}✅ Clone completed: {result}{Style.RESET_ALL}")
+        except Exception as e:
+            print(f"{Fore.RED}❌ Clone failed: {e}{Style.RESET_ALL}")
+            self.logger.error(f"Environment clone failed: {e}")
+
+    def _get_environments_for_processing(self):
+        """Get environments only when actually needed for processing operations"""
+        print("📋 Scanning environments...")
+        environments = self.list_environments()
+        if not environments:
+            print(f"{Fore.RED}No environments found!{Style.RESET_ALL}")
+            return None
+        return environments
+
+    def _handle_environment_debugging(self):
+        """Handle environment-specific debugging"""
+        if debug_environment_failure is None:
+            print(f"{Fore.RED}Debug function not available. Check utils/simple_log_analyzer.py{Style.RESET_ALL}")
+            return
+        
+        print(f"\n{Fore.CYAN}=== Debug Environment Failures ==={Style.RESET_ALL}")
+        
+        env_name = input("Enter environment name to debug: ").strip()
+        if not env_name:
+            print(f"{Fore.RED}Please enter an environment name{Style.RESET_ALL}")
+            return
+        
+        try:
+            debug_environment_failure(env_name, self.log_file)
+        except Exception as e:
+            print(f"{Fore.RED}❌ Debug failed: {e}{Style.RESET_ALL}")
+
+    def _handle_log_analysis(self):
+        """Handle general log analysis"""
+        if analyze_failures is None:
+            print(f"{Fore.RED}Analysis function not available. Check utils/simple_log_analyzer.py{Style.RESET_ALL}")
+            return
+        
+        print(f"\n{Fore.CYAN}=== Analyze All Log Failures ==={Style.RESET_ALL}")
+        
+        try:
+            analyze_failures(self.log_file)
+        except Exception as e:
+            print(f"{Fore.RED}❌ Analysis failed: {e}{Style.RESET_ALL}")
+
+    def _handle_kernel_recreation_selected(self, environments: List[Dict[str, str]]):
+        """Handle kernel recreation for selected environments"""
+        # Show environments with Python/R
+        valid_envs = []
+        print(f"\n{Fore.CYAN}Environments with Python or R:{Style.RESET_ALL}")
+        for i, env in enumerate(environments, 1):
+            if env['name'] in ['base', 'root']:
+                continue
+                
+            has_python = self._environment_has_python(env['path'])
+            has_r = self._environment_has_r(env['path'])
+            
+            if has_python or has_r:
+                valid_envs.append(env)
+                kernels = []
+                if has_python:
+                    kernels.append("Python")
+                if has_r:
+                    kernels.append("R")
+                print(f"{len(valid_envs):2}. {env['name']} ({', '.join(kernels)})")
+        
+        if not valid_envs:
+            print(f"{Fore.YELLOW}No environments with Python or R kernels found{Style.RESET_ALL}")
+            return
+        
+        try:
+            selection = input(f"\nEnter environment numbers to process (e.g., 1,3-5 or 'all'): ").strip()
+            
+            if selection.lower() == 'all':
+                selected_envs = [env['name'] for env in valid_envs]
+            else:
+                indices = self._parse_selection(selection, len(valid_envs))
+                selected_envs = [valid_envs[i-1]['name'] for i in indices]
+            
+            self.recreate_jupyter_kernels(selected_envs)
+            
+        except (ValueError, IndexError) as e:
+            print(f"{Fore.RED}Invalid selection: {e}{Style.RESET_ALL}")
 
     def _handle_yaml_analysis(self):
         """Handle YAML analysis menu"""
@@ -2003,92 +2145,6 @@ class EnvironmentManager:
         
         # Default to user local directory
         return possible_dirs[0]
-
-    def _handle_environment_cloning(self, environments: List[Dict[str, str]]):
-        """Handle environment cloning with conda-pack or YAML"""
-        if EnvironmentCloner is None:
-            print(f"{Fore.RED}Environment cloner not available. Check utils/environment_cloner.py{Style.RESET_ALL}")
-            return
-        
-        print(f"\n{Fore.CYAN}=== Clone Environment ==={Style.RESET_ALL}")
-        
-        # Show available environments
-        print("Available environments:")
-        for i, env in enumerate(environments, 1):
-            print(f"{i:2}. {env['name']} (Python: {env['python_version'] or 'Unknown'})")
-        
-        # Get user input
-        try:
-            choice = input("\nEnter environment number to clone: ").strip()
-            env_index = int(choice) - 1
-            
-            if env_index < 0 or env_index >= len(environments):
-                print(f"{Fore.RED}Invalid selection!{Style.RESET_ALL}")
-                return
-            
-            source_env = environments[env_index]['name']
-            
-        except ValueError:
-            # Maybe they entered an environment name directly
-            source_env = choice
-            if not any(env['name'] == source_env for env in environments):
-                print(f"{Fore.RED}Environment '{source_env}' not found!{Style.RESET_ALL}")
-                return
-        
-        # Get new name
-        new_name = input(f"Enter new environment name (or 'auto' for smart naming): ").strip()
-        if not new_name:
-            new_name = "auto"
-        
-        # Choose method
-        print("\nCloning methods:")
-        print("1. conda-pack (recommended - exact replication)")
-        print("2. YAML export/import (cross-platform compatible)")
-        print("3. Auto (conda-pack if available, otherwise YAML)")
-        
-        method_choice = input("Choose method (1-3): ").strip()
-        method_map = {"1": "conda-pack", "2": "yaml", "3": "auto"}
-        method = method_map.get(method_choice, "auto")
-        
-        try:
-            cloner = EnvironmentCloner()
-            result = cloner.clone_environment(source_env, new_name, method)
-            print(f"{Fore.GREEN}✅ Clone completed: {result}{Style.RESET_ALL}")
-        except Exception as e:
-            print(f"{Fore.RED}❌ Clone failed: {e}{Style.RESET_ALL}")
-            self.logger.error(f"Environment clone failed: {e}")
-
-    def _handle_environment_debugging(self):
-        """Handle environment-specific debugging"""
-        if debug_environment_failure is None:
-            print(f"{Fore.RED}Debug function not available. Check utils/simple_log_analyzer.py{Style.RESET_ALL}")
-            return
-        
-        print(f"\n{Fore.CYAN}=== Debug Environment Failures ==={Style.RESET_ALL}")
-        
-        env_name = input("Enter environment name to debug: ").strip()
-        if not env_name:
-            print(f"{Fore.RED}Please enter an environment name{Style.RESET_ALL}")
-            return
-        
-        try:
-            debug_environment_failure(env_name, self.log_file)
-        except Exception as e:
-            print(f"{Fore.RED}❌ Debug failed: {e}{Style.RESET_ALL}")
-
-    def _handle_log_analysis(self):
-        """Handle general log analysis"""
-        if analyze_failures is None:
-            print(f"{Fore.RED}Analysis function not available. Check utils/simple_log_analyzer.py{Style.RESET_ALL}")
-            return
-        
-        print(f"\n{Fore.CYAN}=== Analyze All Log Failures ==={Style.RESET_ALL}")
-        
-        try:
-            analyze_failures(self.log_file)
-        except Exception as e:
-            print(f"{Fore.RED}❌ Analysis failed: {e}{Style.RESET_ALL}")
-
 
 def main():
     """Main entry point"""
