@@ -68,3 +68,12 @@ config.py
 Network Trash Folder
 Temporary Items
 .apdisk
+
+# Large conda-pack files (>100MB GitHub limit)
+cloned_environments/*.tar.gz
+cloned_environments/*.zip
+
+# Temporary backup files
+*.tmp
+*.bak
+*.backup
