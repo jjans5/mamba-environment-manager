@@ -1391,13 +1391,14 @@ class EnvironmentManager:
             print(f"\n{Fore.YELLOW}Environment Management Options:{Style.RESET_ALL}")
             print("1. [BACKUP] Backup environment (preserve original)")
             print("2. [CLONE]  Clone environment (backup + rename/recreate)")  
-            print("3. [ANALYZE] Analyze exported YAML files for duplicates")
-            print("4. [BATCH]  Batch processing (multiple environments)")
-            print("5. [DEBUG]  Debug and analyze failures")
-            print("6. [KERNEL] Recreate Jupyter kernels")
-            print("7. [LIST]   List all environments")
-            print("8. [CLEAN]  Clean up backup files (YAML/conda-pack)")
-            print("9. [EXIT]   Exit")
+            print("3. [UNPACK] Unpack conda-pack archive to environment")
+            print("4. [ANALYZE] Analyze exported YAML files for duplicates")
+            print("5. [BATCH]  Batch processing (multiple environments)")
+            print("6. [DEBUG]  Debug and analyze failures")
+            print("7. [KERNEL] Recreate Jupyter kernels")
+            print("8. [LIST]   List all environments")
+            print("9. [CLEAN]  Clean up backup files (YAML/conda-pack)")
+            print("10. [EXIT]   Exit")
             
             choice = input(f"\n{Fore.CYAN}Enter your choice (1-9): {Style.RESET_ALL}").strip()
             
@@ -1406,25 +1407,27 @@ class EnvironmentManager:
             elif choice == "2":
                 self._handle_clone_environment()
             elif choice == "3":
-                self._handle_analyze_yaml_files()
+                self._handle_unpack_archive()
             elif choice == "4":
-                self._handle_batch_processing()
+                self._handle_analyze_yaml_files()
             elif choice == "5":
-                self._handle_debug_failures()
+                self._handle_batch_processing()
             elif choice == "6":
-                self._handle_recreate_kernels()
+                self._handle_debug_failures()
             elif choice == "7":
-                self._handle_list_environments()
+                self._handle_recreate_kernels()
             elif choice == "8":
-                self._handle_cleanup_files()
+                self._handle_list_environments()
             elif choice == "9":
+                self._handle_cleanup_files()
+            elif choice == "10":
                 print("👋 Goodbye!")
                 break
             else:
-                print(f"{Fore.RED}Invalid choice! Please enter 1-9.{Style.RESET_ALL}")
+                print(f"{Fore.RED}Invalid choice! Please enter 1-10.{Style.RESET_ALL}")
                 
             # Ask if user wants to continue
-            if choice != "9":
+            if choice != "10":
                 continue_choice = input(f"\n{Fore.CYAN}Continue with another operation? (Y/n): {Style.RESET_ALL}").strip().lower()
                 if continue_choice in ['n', 'no']:
                     print("Goodbye!")
@@ -1473,6 +1476,89 @@ class EnvironmentManager:
         
         # Process clone
         self._process_clone(env_name, new_name, clone_method, remove_original == 'y')
+
+    def _handle_unpack_archive(self):
+        """Handle unpacking conda-pack archives."""
+        
+        print(f"\n{Fore.CYAN}=== [UNPACK] Unpack conda-pack Archive ==={Style.RESET_ALL}")
+        print("Unpack a conda-pack archive (.tar.gz) to create a new environment.")
+        
+        if EnvironmentCloner is None:
+            print(f"{Fore.RED}Error: Environment cloner not available.{Style.RESET_ALL}")
+            return
+        
+        # Look for archives in common locations
+        search_dirs = ["./cloned_environments", "./exported_environments", "."]
+        found_archives = []
+        
+        for directory in search_dirs:
+            if os.path.exists(directory):
+                for file in os.listdir(directory):
+                    if file.endswith('.tar.gz'):
+                        found_archives.append(os.path.join(directory, file))
+        
+        if found_archives:
+            print(f"\n{Fore.GREEN}Found {len(found_archives)} archive(s):{Style.RESET_ALL}")
+            for i, archive in enumerate(found_archives, 1):
+                basename = os.path.basename(archive)
+                directory = os.path.dirname(archive)
+                print(f"   {i}. {basename} (in {directory})")
+            
+            print(f"   {len(found_archives) + 1}. Browse for different file")
+            
+            choice = input(f"\nSelect archive (1-{len(found_archives) + 1}): ").strip()
+            
+            if choice.isdigit() and 1 <= int(choice) <= len(found_archives):
+                selected_archive = found_archives[int(choice) - 1]
+            elif choice == str(len(found_archives) + 1):
+                selected_archive = input("Enter path to archive file: ").strip()
+            else:
+                print(f"{Fore.RED}Invalid selection.{Style.RESET_ALL}")
+                return
+        else:
+            print(f"\n{Fore.YELLOW}No .tar.gz archives found in common locations.{Style.RESET_ALL}")
+            selected_archive = input("Enter path to archive file: ").strip()
+        
+        if not os.path.exists(selected_archive):
+            print(f"{Fore.RED}Archive file not found: {selected_archive}{Style.RESET_ALL}")
+            return
+        
+        # Ask for target environment name with smart naming
+        default_name = os.path.splitext(os.path.splitext(os.path.basename(selected_archive))[0])[0]
+        print(f"\n{Fore.YELLOW}Environment naming options:{Style.RESET_ALL}")
+        print(f"1. Auto-generate name with version suffixes (recommended)")
+        print(f"2. Use archive name: {default_name}")
+        print(f"3. Enter custom name")
+        
+        naming_choice = input("Select naming option (1-3, default: 1): ").strip()
+        
+        if naming_choice == "2":
+            new_name = default_name
+        elif naming_choice == "3":
+            new_name = input("Enter custom environment name: ").strip()
+            if not new_name:
+                print(f"{Fore.RED}Invalid name. Using auto-generation.{Style.RESET_ALL}")
+                new_name = "auto"
+        else:
+            new_name = "auto"  # Default to auto-generation
+        
+        # Perform unpacking
+        try:
+            cloner = EnvironmentCloner()
+            result = cloner.unpack_archive(selected_archive, new_name)
+            
+            if result:
+                print(f"\n{Fore.GREEN}Archive unpacked successfully!{Style.RESET_ALL}")
+                print(f"Environment location: {result}")
+                # Get the actual final name from the result path
+                final_env_name = os.path.basename(result)
+                print(f"Activate with: conda activate {final_env_name}")
+            else:
+                print(f"{Fore.YELLOW}Unpacking was cancelled.{Style.RESET_ALL}")
+                
+        except Exception as e:
+            print(f"{Fore.RED}Failed to unpack archive: {e}{Style.RESET_ALL}")
+            self.logger.error(f"Unpack failed: {e}")
 
     def _handle_analyze_yaml_files(self):
         """Handle YAML file analysis"""
