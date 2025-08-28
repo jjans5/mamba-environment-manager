@@ -105,10 +105,6 @@ class EnvironmentCloner:
             'r_version': r_version,
             'packages': packages
         }
-            'python_version': python_version,
-            'r_version': r_version,
-            'packages': packages
-        }
     
     def _generate_new_name(self, old_name, new_name_input):
         """Generate new environment name using naming scheme."""
@@ -143,7 +139,7 @@ class EnvironmentCloner:
         if not self.conda_pack_available:
             raise RuntimeError("conda-pack is required for this method. Install with: conda install conda-pack")
         
-        print(f"🔄 Cloning environment with conda-pack...")
+        print("[INFO] Cloning environment with conda-pack...")
         
         # Get environment info
         env_info = self._get_environment_info(old_env)
@@ -153,7 +149,7 @@ class EnvironmentCloner:
         os.makedirs(output_dir, exist_ok=True)
         archive_path = os.path.join(output_dir, f"{final_name}.tar.gz")
         
-        print(f"📦 Packing {env_info['name']} → {archive_path}")
+        print(f"[PACK] Packing {env_info['name']} -> {archive_path}")
         
         # Pack the environment
         try:
@@ -163,9 +159,9 @@ class EnvironmentCloner:
                 '-o', archive_path
             ], check=True)
             
-            print(f"✅ Environment packed successfully!")
-            print(f"📁 Archive: {archive_path}")
-            print(f"\n💡 To deploy on target machine:")
+            print("[SUCCESS] Environment packed successfully!")
+            print(f"[FILE] Archive: {archive_path}")
+            print(f"\n[TIP] To deploy on target machine:")
             print(f"   mkdir -p {final_name}")
             print(f"   tar -xzf {archive_path} -C {final_name}")
             print(f"   source {final_name}/bin/activate")
@@ -179,7 +175,7 @@ class EnvironmentCloner:
     def clone_with_yaml(self, old_env, new_name="auto", output_dir="./exported_environments"):
         """Clone environment using YAML export/import (cross-platform compatible)."""
         
-        print(f"📄 Cloning environment with YAML...")
+        print(f"[YAML] Cloning environment with YAML...")
         
         # Get environment info
         env_info = self._get_environment_info(old_env)
@@ -189,7 +185,7 @@ class EnvironmentCloner:
         os.makedirs(output_dir, exist_ok=True)
         yaml_path = os.path.join(output_dir, f"{final_name}.yml")
         
-        print(f"📤 Exporting {env_info['name']} → {yaml_path}")
+        print(f"[EXPORT] Exporting {env_info['name']} -> {yaml_path}")
         
         # Export environment to YAML
         try:
@@ -209,23 +205,23 @@ class EnvironmentCloner:
             with open(yaml_path, 'w') as f:
                 f.write(content)
             
-            print(f"✅ YAML exported successfully!")
-            print(f"📁 YAML file: {yaml_path}")
+            print("[SUCCESS] YAML exported successfully!")
+            print(f"[FILE] YAML file: {yaml_path}")
             
             # Optionally create the environment immediately
-            create_now = input(f"\n❓ Create environment '{final_name}' now? (y/N): ").strip().lower()
+            create_now = input(f"\n[?] Create environment '{final_name}' now? (y/N): ").strip().lower()
             
             if create_now == 'y':
-                print(f"🔨 Creating environment {final_name}...")
+                print(f"[CREATE] Creating environment {final_name}...")
                 try:
                     subprocess.run([
                         self.conda_cmd, 'env', 'create',
                         '-f', yaml_path
                     ], check=True)
-                    print(f"✅ Environment '{final_name}' created successfully!")
+                    print(f"[SUCCESS] Environment '{final_name}' created successfully!")
                 except subprocess.CalledProcessError as e:
-                    print(f"❌ Failed to create environment: {e}")
-                    print(f"💡 You can try later with: {self.conda_cmd} env create -f {yaml_path}")
+                    print(f"[FAIL] Failed to create environment: {e}")
+                    print(f"[TIP] You can try later with: {self.conda_cmd} env create -f {yaml_path}")
             
             return yaml_path
             
@@ -243,23 +239,23 @@ class EnvironmentCloner:
             output_dir: Output directory (method-specific default if None)
         """
         
-        print(f"🔍 Analyzing environment: {old_env}")
+        print(f"[ANALYZE] Analyzing environment: {old_env}")
         
         # Validate environment exists
         try:
             env_info = self._get_environment_info(old_env)
-            print(f"✅ Found environment: {env_info['name']}")
+            print(f"[SUCCESS] Found environment: {env_info['name']}")
             if env_info['python_version']:
-                print(f"🐍 Python: {env_info['python_version']}")
+                print(f"[PYTHON] Python: {env_info['python_version']}")
             if env_info['r_version']:
-                print(f"📊 R: {env_info['r_version']}")
+                print(f"[R] R: {env_info['r_version']}")
         except Exception as e:
             raise RuntimeError(f"Environment validation failed: {e}")
         
         # Determine method
         if method == "auto":
             method = "conda-pack" if self.conda_pack_available else "yaml"
-            print(f"🎯 Auto-selected method: {method}")
+            print(f"[AUTO] Auto-selected method: {method}")
         
         # Set default output directory
         if output_dir is None:
@@ -297,10 +293,10 @@ def main():
             args.method, 
             args.output_dir
         )
-        print(f"\n🎉 Clone operation completed: {result}")
+        print(f"\n[COMPLETE] Clone operation completed: {result}")
         
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"[FAIL] Error: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":

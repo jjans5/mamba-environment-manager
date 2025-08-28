@@ -134,7 +134,7 @@ class EnvironmentManager:
         """
         try:
             self.logger.debug(f"Running command with progress: {' '.join(cmd)}")
-            print(f"🔄 {operation_name} in progress...")
+            print(f"[PROGRESS] {operation_name} in progress...")
             
             # Start the process
             process = subprocess.Popen(
