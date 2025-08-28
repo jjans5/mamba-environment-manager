@@ -1542,10 +1542,22 @@ class EnvironmentManager:
         else:
             new_name = "auto"  # Default to auto-generation
         
+        # Ask for extraction method
+        print(f"\n{Fore.YELLOW}Extraction method options:{Style.RESET_ALL}")
+        print(f"1. System tar command (fast, recommended)")
+        print(f"2. Python tarfile (slower, more compatible)")
+        
+        extract_choice = input("Select extraction method (1-2, default: 1): ").strip()
+        
+        if extract_choice == "2":
+            extract_method = "python"
+        else:
+            extract_method = "system"  # Default to system tar
+        
         # Perform unpacking
         try:
             cloner = EnvironmentCloner()
-            result = cloner.unpack_archive(selected_archive, new_name)
+            result = cloner.unpack_archive(selected_archive, new_name, extract_method=extract_method)
             
             if result:
                 print(f"\n{Fore.GREEN}Archive unpacked successfully!{Style.RESET_ALL}")

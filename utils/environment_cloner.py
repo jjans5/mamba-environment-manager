@@ -135,77 +135,99 @@ class EnvironmentCloner:
         return base_name
     
     def _get_conda_envs_directory(self):
-        """Get the conda/mamba environments directory using multiple detection methods."""
+        """Get the conda/mamba environments directory from the active installation."""
         
-        # Method 1: Try to get from conda info (most reliable)
+        # Method 1: Use conda info --json (most reliable)
         try:
             result = subprocess.run([self.conda_cmd, 'info', '--json'], 
                                   capture_output=True, text=True, check=True)
             info_data = json.loads(result.stdout)
             
-            # Get the first environment directory that exists
-            for envs_dir in info_data.get('envs_dirs', []):
-                if os.path.exists(envs_dir):
-                    return envs_dir
+            # Get envs_dirs from conda info (this shows all configured envs directories)
+            envs_dirs = info_data.get('envs_dirs', [])
+            if envs_dirs:
+                # Use the first (primary) envs directory
+                primary_envs_dir = envs_dirs[0]
+                if os.path.exists(primary_envs_dir):
+                    print(f"[INFO] Using primary envs directory: {primary_envs_dir}")
+                    return primary_envs_dir
+                else:
+                    # Create it if it doesn't exist
+                    os.makedirs(primary_envs_dir, exist_ok=True)
+                    print(f"[INFO] Created envs directory: {primary_envs_dir}")
+                    return primary_envs_dir
                     
         except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError) as e:
-            pass  # Silent fallback to next method
+            print(f"[DEBUG] conda info --json method failed: {e}")
         
-        # Method 2: Get from existing environments list
+        # Method 2: Parse conda info text output (fallback)
         try:
-            result = subprocess.run([self.conda_cmd, 'env', 'list', '--json'], 
+            result = subprocess.run([self.conda_cmd, 'info'], 
                                   capture_output=True, text=True, check=True)
-            env_data = json.loads(result.stdout)
             
-            # Find the common parent directory of all environments
-            if env_data.get('envs'):
-                # Look for environments that end with /envs/<name> pattern
-                for env_path in env_data['envs']:
-                    if '/envs/' in env_path:
-                        # Extract the envs directory
-                        envs_dir = env_path.split('/envs/')[0] + '/envs'
-                        if os.path.exists(envs_dir):
-                            return envs_dir
-                
-                # Fallback: use parent of first environment
-                first_env = env_data['envs'][0]
-                if os.path.basename(os.path.dirname(first_env)) == 'envs':
-                    envs_dir = os.path.dirname(first_env)
-                    return envs_dir
-                else:
-                    # Create envs subdirectory in the conda root
-                    conda_root = os.path.dirname(first_env)
-                    envs_dir = os.path.join(conda_root, 'envs')
-                    os.makedirs(envs_dir, exist_ok=True)
-                    return envs_dir
-                    
-        except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError) as e:
-            pass  # Silent fallback to next method
+            # Parse the text output for 'envs directories'
+            for line in result.stdout.split('\n'):
+                line = line.strip()
+                if line.startswith('envs directories :') or line.startswith('envs directories:'):
+                    # Extract the directory path after the colon
+                    envs_dir = line.split(':', 1)[1].strip()
+                    if envs_dir and os.path.exists(envs_dir):
+                        print(f"[INFO] Found envs directory from text output: {envs_dir}")
+                        return envs_dir
+                    elif envs_dir:
+                        os.makedirs(envs_dir, exist_ok=True)
+                        print(f"[INFO] Created envs directory from text output: {envs_dir}")
+                        return envs_dir
+                        
+        except subprocess.CalledProcessError as e:
+            print(f"[DEBUG] conda info text method failed: {e}")
         
-        # Method 3: Use CONDA_PREFIX environment variable
-        try:
-            conda_prefix = os.environ.get('CONDA_PREFIX')
+        # Method 3: Use CONDA_PREFIX or MAMBA_PREFIX environment variable
+        for prefix_var in ['CONDA_PREFIX', 'MAMBA_PREFIX']:
+            conda_prefix = os.environ.get(prefix_var)
             if conda_prefix:
-                # If we're in base environment, envs should be in conda_prefix/envs
-                if conda_prefix.endswith('/base') or os.path.basename(conda_prefix) == 'miniforge3':
-                    envs_dir = os.path.join(conda_prefix, 'envs')
+                # If we're in an environment, get the base installation
+                if '/envs/' in conda_prefix:
+                    base_prefix = conda_prefix.split('/envs/')[0]
                 else:
-                    # We're in a specific environment, go up to find envs
-                    if '/envs/' in conda_prefix:
-                        envs_dir = conda_prefix.split('/envs/')[0] + '/envs'
-                    else:
-                        envs_dir = os.path.join(os.path.dirname(conda_prefix), 'envs')
-                
-                if os.path.exists(envs_dir):
-                    return envs_dir
-                else:
-                    os.makedirs(envs_dir, exist_ok=True)
-                    return envs_dir
+                    base_prefix = conda_prefix
                     
-        except Exception as e:
-            pass  # Silent fallback to next method
+                envs_dir = os.path.join(base_prefix, 'envs')
+                if os.path.exists(envs_dir) or base_prefix:
+                    os.makedirs(envs_dir, exist_ok=True)
+                    print(f"[INFO] Using {prefix_var} based directory: {envs_dir}")
+                    return envs_dir
         
-        # Method 4: Last resort - use current directory
+        # Method 4: Analyze existing environments to find active installation
+        try:
+            result = subprocess.run([self.conda_cmd, 'env', 'list'], 
+                                  capture_output=True, text=True, check=True)
+            
+            # Count environments per base installation
+            env_bases = {}
+            for line in result.stdout.split('\n'):
+                line = line.strip()
+                if line and not line.startswith('#') and '/envs/' in line:
+                    # Extract path from the line (usually the last column)
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        env_path = parts[-1]  # Last part is usually the path
+                        if '/envs/' in env_path:
+                            base_path = env_path.split('/envs/')[0]
+                            env_bases[base_path] = env_bases.get(base_path, 0) + 1
+            
+            if env_bases:
+                # Use the installation with the most environments
+                main_base = max(env_bases.items(), key=lambda x: x[1])[0]
+                envs_dir = os.path.join(main_base, 'envs')
+                print(f"[INFO] Detected active installation: {main_base} ({env_bases[main_base]} environments)")
+                os.makedirs(envs_dir, exist_ok=True)
+                return envs_dir
+                
+        except subprocess.CalledProcessError as e:
+            print(f"[DEBUG] Environment list analysis failed: {e}")
+        
+        # Method 5: Final fallback - use current working directory
         fallback_dir = os.path.join(os.getcwd(), 'envs')
         print(f"[WARNING] Could not detect conda envs directory, using fallback: {fallback_dir}")
         os.makedirs(fallback_dir, exist_ok=True)
@@ -389,14 +411,32 @@ class EnvironmentCloner:
         else:
             raise ValueError(f"Unknown method: {method}")
     
-    def unpack_archive(self, archive_path, new_name="auto"):
-        """Unpack a conda-pack archive to the conda environments directory with smart naming."""
+    def unpack_archive(self, archive_path, new_name="auto", target_envs_dir=None, extract_method="system"):
+        """
+        Unpack a conda-pack archive to the conda environments directory with smart naming.
+        
+        Args:
+            archive_path (str): Path to the .tar.gz archive file
+            new_name (str): Environment name ('auto' for smart generation, or custom name)
+            target_envs_dir (str): Optional override for envs directory (default: auto-detect)
+            extract_method (str): Extraction method ('system' or 'python')
+        
+        Returns:
+            str: Path to the unpacked environment directory
+        """
         
         if not os.path.exists(archive_path):
             raise FileNotFoundError(f"Archive not found: {archive_path}")
         
         # Extract the original environment name from archive filename
         archive_basename = os.path.splitext(os.path.splitext(os.path.basename(archive_path))[0])[0]
+        
+        # Remove common suffixes that we don't want in the environment name
+        suffixes_to_remove = ['_yaml', '_yml', '_export', '_backup']
+        for suffix in suffixes_to_remove:
+            if archive_basename.endswith(suffix):
+                archive_basename = archive_basename[:-len(suffix)]
+                break
         
         # Try to extract environment info from the archive for smart naming
         print(f"[ANALYZE] Analyzing archive: {archive_path}")
@@ -441,10 +481,12 @@ class EnvironmentCloner:
             print(f"[R] Detected R: {env_info['r_version']}")
         
         try:
-            # Get conda environments directory using multiple methods
-            envs_dir = self._get_conda_envs_directory()
-            
-            print(f"[INFO] Installing to conda envs directory: {envs_dir}")
+            # Get conda environments directory
+            if target_envs_dir:
+                envs_dir = target_envs_dir
+                print(f"[OVERRIDE] Using specified envs directory: {envs_dir}")
+            else:
+                envs_dir = self._get_conda_envs_directory()
             
             # Create target environment directory
             target_env_path = os.path.join(envs_dir, final_name)
@@ -462,9 +504,51 @@ class EnvironmentCloner:
             
             os.makedirs(target_env_path, exist_ok=True)
             
-            # Unpack the archive
-            with tarfile.open(archive_path, 'r:gz') as tar:
-                tar.extractall(path=target_env_path)
+            # Choose extraction method based on parameter
+            if extract_method == "system":
+                # Try to use system tar command first (often much faster)
+                try:
+                    print("[EXTRACT] Attempting fast extraction using system tar...")
+                    import subprocess
+                    
+                    # Use system tar command for faster extraction
+                    result = subprocess.run([
+                        'tar', '-xzf', archive_path, '-C', target_env_path, '--strip-components=0'
+                    ], capture_output=True, text=True, timeout=1800)  # 30 minute timeout
+                    
+                    if result.returncode == 0:
+                        print("[SUCCESS] Fast extraction completed")
+                    else:
+                        raise subprocess.CalledProcessError(result.returncode, 'tar')
+                        
+                except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+                    # Fallback to Python tarfile with progress feedback
+                    print("[FALLBACK] System tar failed, using Python tarfile extraction...")
+                    extract_method = "python"  # Switch to python method for fallback
+            
+            if extract_method == "python":
+                # Use Python tarfile with progress feedback
+                print("[EXTRACT] Using Python tarfile extraction with progress tracking...")
+                
+                with tarfile.open(archive_path, 'r:gz') as tar:
+                    # Get total number of members for progress tracking
+                    members = tar.getmembers()
+                    total_members = len(members)
+                    
+                    # Extract with progress feedback every 1000 files
+                    for i, member in enumerate(members):
+                        if i % 1000 == 0 and i > 0:
+                            progress = (i / total_members) * 100
+                            print(f"[PROGRESS] Extracted {i}/{total_members} files ({progress:.1f}%)")
+                        
+                        try:
+                            tar.extract(member, path=target_env_path)
+                        except Exception as e:
+                            # Skip problematic files but continue
+                            print(f"[WARNING] Skipped problematic file: {member.name} ({e})")
+                            continue
+                    
+                    print(f"[COMPLETE] Extracted {total_members} files")
             
             print(f"[SUCCESS] Environment unpacked to: {target_env_path}")
             
@@ -529,6 +613,9 @@ def main():
     unpack_parser.add_argument("archive", help="Path to .tar.gz archive")
     unpack_parser.add_argument("new_name", nargs="?", default="auto", 
                              help="New environment name (default: auto-generated with version suffixes)")
+    unpack_parser.add_argument("--target-envs-dir", help="Target envs directory (overrides auto-detection)")
+    unpack_parser.add_argument("--extract-method", choices=["system", "python"], default="system",
+                             help="Extraction method: 'system' (fast, uses tar command) or 'python' (slower, pure Python)")
     
     # List command
     list_parser = subparsers.add_parser("list", help="List available archives")
@@ -571,7 +658,12 @@ def main():
             print(f"\n[COMPLETE] Clone operation completed: {result}")
             
         elif args.command == "unpack":
-            result = cloner.unpack_archive(args.archive, args.new_name)
+            result = cloner.unpack_archive(
+                args.archive, 
+                args.new_name, 
+                target_envs_dir=args.target_envs_dir,
+                extract_method=args.extract_method
+            )
             if result:
                 print(f"\n[COMPLETE] Unpack operation completed: {result}")
             
