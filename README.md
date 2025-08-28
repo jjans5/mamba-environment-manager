@@ -1,11 +1,52 @@
 # Mamba Environment Manager
 
-A comprehensive Python tool for managing mamba/conda environments with automated reinstallation, renaming, cloning, and debugging capabilities.
+A comprehensive Python tool for managing mamba/conda environments with automated backup, cloning, analysis, and debugging capabilities. Now featuring an intuitive, task-oriented interface for efficient environment management.
+
+## 🚀 Quick Start
+
+```bash
+# Interactive mode with task-oriented menu
+python environment_manager.py
+
+# Batch processing mode
+python batch_process.py
+
+# Environment cloning tool
+python utils/environment_cloner.py
+
+# Log analysis and debugging
+python utils/simple_log_analyzer.py
+```
+
+## 📋 User Interface
+
+The environment manager features a **user-centric workflow** designed around common tasks:
+
+```
+Environment Management Options:
+1. 📦 Backup environment (preserve original)
+2. 🔄 Clone environment (backup + rename/recreate)  
+3. 📊 Analyze exported YAML files for duplicates
+4. ⚡ Batch processing (multiple environments)
+5. 🐛 Debug and analyze failures
+6. 🔬 Recreate Jupyter kernels
+7. 📋 List all environments
+8. 🧹 Clean up backup files (YAML/conda-pack)
+9. ❌ Exit
+```
+
+### Key Workflow Improvements
+- **⚡ Lightning Fast Startup**: Menu loads instantly, no upfront environment scanning
+- **🎯 Task-Oriented**: Choose your intent first, then specify details
+- **📦 Flexible Input**: Environment names, paths, or "all" environments
+- **🔧 Method Choice**: YAML vs conda-pack for each operation
+- **🤖 Smart Naming**: Auto-naming option throughout
+- **📊 Batch Operations**: Process multiple environments efficiently
 
 ## Project Structure
 
 ```
-├── environment_manager.py         # Main environment management tool
+├── environment_manager.py         # Main environment management tool with new UI
 ├── yaml_analyzer.py              # YAML file analysis and cleanup utility
 ├── batch_process.py              # Batch processing script
 ├── README.md                     # This documentation
@@ -29,6 +70,32 @@ A comprehensive Python tool for managing mamba/conda environments with automated
 
 ## Features
 
+### 🎯 User-Centric Operations
+
+#### 1. 📦 Backup Environment
+- **Purpose**: Preserve environments without modification
+- **Methods**: YAML export or conda-pack archives
+- **Scope**: Single environment, path, or all environments
+- **Use Case**: Create portable backups before system changes
+
+#### 2. 🔄 Clone Environment  
+- **Purpose**: Create renamed/modified copies of environments
+- **Methods**: conda-pack (exact replication) or YAML (cross-platform)
+- **Features**: Auto-naming, optional original removal
+- **Use Case**: Environment migration, testing, or cleanup
+
+#### 3. ⚡ Batch Processing
+- **Backup Multiple**: Process many environments efficiently
+- **Clone Multiple**: Batch clone with auto-naming
+- **From Files**: Process existing YAML/conda-pack files
+- **Use Case**: System-wide environment management
+
+#### 4. 🐛 Debug & Analysis
+- **Failure Analysis**: Analyze all failures or specific environments
+- **Interactive Debugging**: Step-through debugging sessions
+- **Pattern Detection**: Identify common failure patterns
+- **Use Case**: Troubleshooting installation and compatibility issues
+
 ### Core Environment Management
 - **Export & Reinstall**: Export broken environments to YAML files and reinstall them
 - **Smart Renaming**: Rename environments to lowercase with Python/R version suffixes
@@ -37,17 +104,13 @@ A comprehensive Python tool for managing mamba/conda environments with automated
 - **Error Handling**: Comprehensive error handling and graceful recovery
 - **Detailed Logging**: All operations logged to file with timestamps
 
-### Interactive & Analysis Tools
-- **Interactive Mode**: User-friendly interface for selective processing
-- **Batch Mode**: Automated processing of all environments
-- **🆕 YAML Analysis**: Analyze exported files for duplicates and conflicts
-- **🆕 Smart Cleanup**: Remove duplicate YAML files intelligently
-- **🆕 Jupyter Kernel Recreation**: Automatically update/create Jupyter kernels for environments
-
 ### 🆕 Advanced Features
 - **🆕 Environment Cloning**: Clone environments using conda-pack or YAML export
 - **🆕 Failure Debugging**: Detailed analysis of environment failures with context
 - **🆕 Log Analysis**: Comprehensive log analysis to identify patterns and issues
+- **🆕 Performance Optimized**: Smart menu routing with on-demand environment scanning
+- **🆕 YAML Analysis**: Analyze exported files for duplicates and conflicts
+- **🆕 Jupyter Kernel Recreation**: Automatically update/create Jupyter kernels for environments
 - **🆕 conda-pack Integration**: Create portable environment archives for deployment
 
 ## Usage

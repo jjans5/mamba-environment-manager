@@ -1383,112 +1383,660 @@ class EnvironmentManager:
         return True
     
     def run_interactive_mode(self):
-        """Run the tool in interactive mode"""
+        """Run the tool in interactive mode with user-centric workflow"""
         print(f"\n{Fore.CYAN}=== Mamba Environment Manager ==={Style.RESET_ALL}")
-        print("This tool will help you manage your conda/mamba environments.\n")
+        print("A comprehensive tool for managing conda/mamba environments.\n")
         
         while True:
-            print(f"\n{Fore.YELLOW}Options:{Style.RESET_ALL}")
-            print("1. Process all environments (export, rename, reinstall)")
-            print("2. Select specific environments for processing")  
-            print("3. Preview changes (show what would be renamed)")
-            print("4. Analyze exported YAML files")
-            print("5. Clean up YAML files")
-            print("6. Recreate Jupyter kernels")
-            print("7. Clone environment (conda-pack or YAML)")
-            print("8. Debug environment failures")
-            print("9. Analyze log failures")
-            print("10. List all environments")
-            print("11. Exit")
+            print(f"\n{Fore.YELLOW}Environment Management Options:{Style.RESET_ALL}")
+            print("1. 📦 Backup environment (preserve original)")
+            print("2. 🔄 Clone environment (backup + rename/recreate)")  
+            print("3. 📊 Analyze exported YAML files for duplicates")
+            print("4. ⚡ Batch processing (multiple environments)")
+            print("5. 🐛 Debug and analyze failures")
+            print("6. 🔬 Recreate Jupyter kernels")
+            print("7. 📋 List all environments")
+            print("8. 🧹 Clean up backup files (YAML/conda-pack)")
+            print("9. ❌ Exit")
             
-            choice = input("\nEnter your choice (1-11): ").strip()
+            choice = input(f"\n{Fore.CYAN}Enter your choice (1-9): {Style.RESET_ALL}").strip()
             
             if choice == "1":
-                self._handle_process_all()
+                self._handle_backup_environment()
             elif choice == "2":
-                self._handle_process_selected()
+                self._handle_clone_environment()
             elif choice == "3":
-                self._handle_preview_changes()
+                self._handle_analyze_yaml_files()
             elif choice == "4":
-                self._handle_yaml_analysis()
+                self._handle_batch_processing()
             elif choice == "5":
-                self._handle_yaml_cleanup()
+                self._handle_debug_failures()
             elif choice == "6":
-                self._handle_kernel_recreation()
+                self._handle_recreate_kernels()
             elif choice == "7":
-                self._handle_environment_cloning()
-            elif choice == "8":
-                self._handle_environment_debugging()
-            elif choice == "9":
-                self._handle_log_analysis()
-            elif choice == "10":
                 self._handle_list_environments()
-            elif choice == "11":
-                print("Exiting...")
+            elif choice == "8":
+                self._handle_cleanup_files()
+            elif choice == "9":
+                print("👋 Goodbye!")
                 break
             else:
-                print(f"{Fore.RED}Invalid choice!{Style.RESET_ALL}")
+                print(f"{Fore.RED}Invalid choice! Please enter 1-9.{Style.RESET_ALL}")
                 
             # Ask if user wants to continue
-            if choice != "11":
-                continue_choice = input(f"\n{Fore.CYAN}Return to main menu? (y/N): {Style.RESET_ALL}").strip().lower()
-                if continue_choice != 'y':
-                    print("Exiting...")
+            if choice != "9":
+                continue_choice = input(f"\n{Fore.CYAN}Continue with another operation? (Y/n): {Style.RESET_ALL}").strip().lower()
+                if continue_choice in ['n', 'no']:
+                    print("👋 Goodbye!")
                     break
 
-    def _handle_list_environments(self):
-        """Handle listing and displaying all environments with details"""
-        print(f"\n{Fore.CYAN}=== Environment List ==={Style.RESET_ALL}")
+    def _handle_backup_environment(self):
+        """Handle backing up environments (preserve original)"""
+        print(f"\n{Fore.CYAN}=== 📦 Backup Environment ==={Style.RESET_ALL}")
+        print("Backup an environment without modifying the original.")
         
-        # Now we scan environments only when requested
+        # Get environment selection
+        env_selection = self._get_environment_selection("backup")
+        if not env_selection:
+            return
+        
+        # Get backup method
+        backup_method = self._get_backup_method()
+        if not backup_method:
+            return
+        
+        # Process backup
+        self._process_backup(env_selection, backup_method)
+
+    def _handle_clone_environment(self):
+        """Handle cloning environments (backup + rename/recreate)"""
+        print(f"\n{Fore.CYAN}=== 🔄 Clone Environment ==={Style.RESET_ALL}")
+        print("Clone an environment with a new name and optionally remove the original.")
+        
+        # Get single environment (cloning works on one at a time)
+        env_name = self._get_single_environment_selection("clone")
+        if not env_name:
+            return
+        
+        # Get new name
+        new_name = input(f"Enter new environment name (or 'auto' for smart naming): ").strip()
+        if not new_name:
+            new_name = "auto"
+        
+        # Get cloning method
+        clone_method = self._get_backup_method("cloning")
+        if not clone_method:
+            return
+        
+        # Ask about removing original
+        remove_original = input(f"Remove original environment '{env_name}' after successful clone? (y/N): ").strip().lower()
+        
+        # Process clone
+        self._process_clone(env_name, new_name, clone_method, remove_original == 'y')
+
+    def _handle_analyze_yaml_files(self):
+        """Handle YAML file analysis"""
+        print(f"\n{Fore.CYAN}=== 📊 Analyze YAML Files ==={Style.RESET_ALL}")
+        self.analyze_and_cleanup_yaml_files("analyze")
+
+    def _handle_batch_processing(self):
+        """Handle batch processing of multiple environments"""
+        print(f"\n{Fore.CYAN}=== ⚡ Batch Processing ==={Style.RESET_ALL}")
+        print("Process multiple environments efficiently.")
+        
+        print(f"\n{Fore.YELLOW}Batch Operation Type:{Style.RESET_ALL}")
+        print("1. Backup multiple environments")
+        print("2. Clone multiple environments (with auto-naming)")
+        print("3. Process from existing backup files")
+        print("4. Back to main menu")
+        
+        batch_choice = input("\nEnter your choice (1-4): ").strip()
+        
+        if batch_choice == "1":
+            self._handle_batch_backup()
+        elif batch_choice == "2":
+            self._handle_batch_clone()
+        elif batch_choice == "3":
+            self._handle_process_from_files()
+        elif batch_choice == "4":
+            return
+        else:
+            print(f"{Fore.RED}Invalid choice!{Style.RESET_ALL}")
+
+    def _handle_debug_failures(self):
+        """Handle debugging and failure analysis"""
+        print(f"\n{Fore.CYAN}=== 🐛 Debug and Analyze Failures ==={Style.RESET_ALL}")
+        
+        print("1. Analyze all failures in log")
+        print("2. Debug specific environment")
+        print("3. Interactive debugging session")
+        print("4. Back to main menu")
+        
+        debug_choice = input("\nEnter your choice (1-4): ").strip()
+        
+        if debug_choice == "1":
+            self._handle_log_analysis()
+        elif debug_choice == "2":
+            self._handle_environment_debugging()
+        elif debug_choice == "3":
+            self._handle_interactive_debugging()
+        elif debug_choice == "4":
+            return
+        else:
+            print(f"{Fore.RED}Invalid choice!{Style.RESET_ALL}")
+
+    def _handle_recreate_kernels(self):
+        """Handle Jupyter kernel recreation"""
+        print(f"\n{Fore.CYAN}=== 🔬 Recreate Jupyter Kernels ==={Style.RESET_ALL}")
+        print("1. Recreate kernels for all environments")
+        print("2. Select specific environments")
+        print("3. Back to main menu")
+        
+        choice = input("\nEnter your choice (1-3): ").strip()
+        
+        if choice == "1":
+            self.recreate_jupyter_kernels()
+        elif choice == "2":
+            environments = self._get_environments_for_processing()
+            if environments:
+                self._handle_kernel_recreation_selected(environments)
+        elif choice == "3":
+            return
+        else:
+            print(f"{Fore.RED}Invalid choice!{Style.RESET_ALL}")
+
+    def _handle_cleanup_files(self):
+        """Handle cleanup of backup files"""
+        print(f"\n{Fore.CYAN}=== 🧹 Clean Up Backup Files ==={Style.RESET_ALL}")
+        
+        print("1. Clean up YAML files")
+        print("2. Clean up conda-pack archives")
+        print("3. Clean up all backup files")
+        print("4. Back to main menu")
+        
+        cleanup_choice = input("\nEnter your choice (1-4): ").strip()
+        
+        if cleanup_choice == "1":
+            self._handle_yaml_cleanup()
+        elif cleanup_choice == "2":
+            self._handle_conda_pack_cleanup()
+        elif cleanup_choice == "3":
+            self._handle_all_cleanup()
+        elif cleanup_choice == "4":
+            return
+        else:
+            print(f"{Fore.RED}Invalid choice!{Style.RESET_ALL}")
+
+    def _get_environment_selection(self, operation_name="process"):
+        """Get environment selection from user"""
+        print(f"\n{Fore.YELLOW}Environment Selection for {operation_name}:{Style.RESET_ALL}")
+        print("1. Select specific environment by name")
+        print("2. Select environment by path")
+        print("3. Select all environments")
+        print("4. Back to main menu")
+        
+        selection_choice = input("\nEnter your choice (1-4): ").strip()
+        
+        if selection_choice == "1":
+            return self._get_environment_by_name()
+        elif selection_choice == "2":
+            return self._get_environment_by_path()
+        elif selection_choice == "3":
+            return "all"
+        elif selection_choice == "4":
+            return None
+        else:
+            print(f"{Fore.RED}Invalid choice!{Style.RESET_ALL}")
+            return None
+
+    def _get_single_environment_selection(self, operation_name="process"):
+        """Get single environment selection from user"""
+        print(f"\n{Fore.YELLOW}Environment Selection for {operation_name}:{Style.RESET_ALL}")
+        print("1. Enter environment name")
+        print("2. Enter environment path")
+        print("3. Choose from list")
+        print("4. Back to main menu")
+        
+        selection_choice = input("\nEnter your choice (1-4): ").strip()
+        
+        if selection_choice == "1":
+            env_name = input("Enter environment name: ").strip()
+            return env_name if env_name else None
+        elif selection_choice == "2":
+            env_path = input("Enter environment path: ").strip()
+            return env_path if env_path else None
+        elif selection_choice == "3":
+            return self._choose_from_environment_list()
+        elif selection_choice == "4":
+            return None
+        else:
+            print(f"{Fore.RED}Invalid choice!{Style.RESET_ALL}")
+            return None
+
+    def _get_backup_method(self, operation_name="backup"):
+        """Get backup method choice from user"""
+        print(f"\n{Fore.YELLOW}Backup Method for {operation_name}:{Style.RESET_ALL}")
+        print("1. YAML export (cross-platform, latest packages)")
+        print("2. conda-pack (exact replication, portable)")
+        print("3. Auto-detect (conda-pack if available, otherwise YAML)")
+        print("4. Back")
+        
+        method_choice = input("\nEnter your choice (1-4): ").strip()
+        method_map = {"1": "yaml", "2": "conda-pack", "3": "auto", "4": None}
+        return method_map.get(method_choice)
+
+    def _get_environment_by_name(self):
+        """Get environment by name input"""
+        env_name = input("Enter environment name: ").strip()
+        if not env_name:
+            print(f"{Fore.RED}No environment name provided.{Style.RESET_ALL}")
+            return None
+        return [env_name] if env_name != "all" else "all"
+
+    def _get_environment_by_path(self):
+        """Get environment by path input"""
+        env_path = input("Enter environment path: ").strip()
+        if not env_path:
+            print(f"{Fore.RED}No environment path provided.{Style.RESET_ALL}")
+            return None
+        return [env_path]
+
+    def _choose_from_environment_list(self):
+        """Let user choose from a list of environments"""
+        print("📋 Loading environment list...")
         environments = self.list_environments()
         if not environments:
             print(f"{Fore.RED}No environments found!{Style.RESET_ALL}")
-            return
+            return None
         
-        print(f"Found {len(environments)} environments:")
-        existing_names = [env['name'].lower() for env in environments]
-        
+        print(f"\n{Fore.CYAN}Available Environments:{Style.RESET_ALL}")
         for i, env in enumerate(environments, 1):
             python_ver = env['python_version'] or 'Unknown'
-            r_ver = env['r_version'] or 'None'
+            print(f"{i:2}. {env['name']} (Python: {python_ver})")
+        
+        try:
+            choice = input(f"\nEnter environment number (1-{len(environments)}): ").strip()
+            env_index = int(choice) - 1
             
-            # Quick export for package detection (for display only)
-            temp_yaml = None
+            if 0 <= env_index < len(environments):
+                return environments[env_index]['name']
+            else:
+                print(f"{Fore.RED}Invalid selection!{Style.RESET_ALL}")
+                return None
+        except ValueError:
+            print(f"{Fore.RED}Please enter a valid number!{Style.RESET_ALL}")
+            return None
+
+    def _process_backup(self, env_selection, backup_method):
+        """Process backup operation"""
+        if env_selection == "all":
+            print("📋 Loading all environments...")
+            environments = self.list_environments()
+            env_names = [env['name'] for env in environments]
+        else:
+            env_names = env_selection
+        
+        if backup_method == "yaml":
+            for env_name in env_names:
+                self.export_environment(env_name)
+        elif backup_method == "conda-pack":
+            self._backup_with_conda_pack(env_names)
+        elif backup_method == "auto":
+            self._backup_auto_method(env_names)
+
+    def _process_clone(self, env_name, new_name, clone_method, remove_original):
+        """Process clone operation"""
+        try:
+            from utils.environment_cloner import EnvironmentCloner
+            cloner = EnvironmentCloner()
+            
+            if new_name == "auto":
+                # Use smart naming
+                if clone_method == "conda-pack":
+                    new_name = f"{env_name}_pack"
+                else:
+                    new_name = f"{env_name}_yaml"
+            
+            success = cloner.clone_environment(env_name, new_name, method=clone_method)
+            
+            if success and remove_original:
+                confirm = input(f"Clone successful! Really remove original '{env_name}'? (yes/no): ").strip().lower()
+                if confirm == "yes":
+                    self._remove_environment(env_name)
+                    
+        except ImportError:
+            print(f"{Fore.RED}Environment cloner not available. Using fallback method.{Style.RESET_ALL}")
+            self._clone_fallback(env_name, new_name, clone_method, remove_original)
+
+    def _handle_batch_backup(self):
+        """Handle batch backup operations"""
+        print(f"\n{Fore.CYAN}=== Batch Backup ==={Style.RESET_ALL}")
+        
+        env_selection = self._get_environment_selection("batch backup")
+        if not env_selection:
+            return
+        
+        backup_method = self._get_backup_method("batch backup")
+        if not backup_method:
+            return
+        
+        print(f"\n{Fore.YELLOW}Starting batch backup...{Style.RESET_ALL}")
+        self._process_backup(env_selection, backup_method)
+
+    def _handle_batch_clone(self):
+        """Handle batch clone operations"""
+        print(f"\n{Fore.CYAN}=== Batch Clone ==={Style.RESET_ALL}")
+        
+        env_selection = self._get_environment_selection("batch clone")
+        if not env_selection:
+            return
+        
+        clone_method = self._get_backup_method("batch clone")
+        if not clone_method:
+            return
+        
+        # Auto-naming for batch operations
+        use_auto_naming = input("Use automatic naming for new environments? (Y/n): ").strip().lower()
+        auto_naming = use_auto_naming != 'n'
+        
+        remove_originals = input("Remove original environments after successful clones? (y/N): ").strip().lower() == 'y'
+        
+        if env_selection == "all":
+            print("📋 Loading all environments...")
+            environments = self.list_environments()
+            env_names = [env['name'] for env in environments]
+        else:
+            env_names = env_selection
+        
+        print(f"\n{Fore.YELLOW}Starting batch clone...{Style.RESET_ALL}")
+        for env_name in env_names:
+            new_name = f"{env_name}_{clone_method}" if auto_naming else input(f"New name for '{env_name}': ").strip()
+            self._process_clone(env_name, new_name, clone_method, remove_originals)
+
+    def _handle_process_from_files(self):
+        """Handle processing from existing backup files"""
+        print(f"\n{Fore.CYAN}=== Process From Backup Files ==={Style.RESET_ALL}")
+        
+        print("1. Process YAML files")
+        print("2. Process conda-pack archives")
+        print("3. Back")
+        
+        choice = input("\nEnter your choice (1-3): ").strip()
+        
+        if choice == "1":
+            self._process_yaml_files()
+        elif choice == "2":
+            self._process_conda_pack_files()
+        elif choice == "3":
+            return
+        else:
+            print(f"{Fore.RED}Invalid choice!{Style.RESET_ALL}")
+
+    def _handle_interactive_debugging(self):
+        """Handle interactive debugging session"""
+        try:
+            from utils.simple_log_analyzer import interactive_debug
+            interactive_debug()
+        except ImportError:
+            print(f"{Fore.RED}Log analyzer not available.{Style.RESET_ALL}")
+
+    def _handle_conda_pack_cleanup(self):
+        """Handle conda-pack file cleanup"""
+        print(f"\n{Fore.CYAN}=== Conda-pack File Cleanup ==={Style.RESET_ALL}")
+        
+        pack_dir = Path("cloned_environments")
+        pack_dir.mkdir(exist_ok=True)
+        
+        pack_files = [f for f in pack_dir.iterdir() if f.suffix == '.gz' and f.name.endswith('.tar.gz')]
+        
+        if not pack_files:
+            print(f"{Fore.YELLOW}No conda-pack files found to clean up.{Style.RESET_ALL}")
+            return
+        
+        print(f"Found {len(pack_files)} conda-pack files:")
+        for i, file in enumerate(pack_files, 1):
+            file_size = file.stat().st_size / (1024*1024)  # MB
+            print(f"{i:2}. {file.name} ({file_size:.1f} MB)")
+        
+        confirm = input(f"\nDelete all {len(pack_files)} conda-pack files? (yes/no): ").strip().lower()
+        if confirm == "yes":
+            for file in pack_files:
+                file.unlink()
+            print(f"{Fore.GREEN}Cleaned up {len(pack_files)} conda-pack files.{Style.RESET_ALL}")
+
+    def _handle_all_cleanup(self):
+        """Handle cleanup of all backup files"""
+        print(f"\n{Fore.CYAN}=== Clean All Backup Files ==={Style.RESET_ALL}")
+        
+        confirm = input("This will remove ALL YAML and conda-pack backup files. Continue? (yes/no): ").strip().lower()
+        if confirm == "yes":
+            self.analyze_and_cleanup_yaml_files("cleanup")  # Use existing method
+            self._handle_conda_pack_cleanup()
+            print(f"{Fore.GREEN}All backup files cleaned up!{Style.RESET_ALL}")
+
+    def _backup_with_conda_pack(self, env_names):
+        """Backup environments using conda-pack"""
+        try:
+            from utils.environment_cloner import EnvironmentCloner
+            cloner = EnvironmentCloner()
+            
+            for env_name in env_names:
+                print(f"📦 Backing up {env_name} with conda-pack...")
+                # Use the cloner's method - it should handle the packing
+                cloner.clone_environment(env_name, f"{env_name}_backup", method="conda-pack")
+                
+        except ImportError:
+            print(f"{Fore.RED}Conda-pack functionality not available.{Style.RESET_ALL}")
+            print("Falling back to YAML export...")
+            for env_name in env_names:
+                self.export_environment(env_name)
+
+    def _backup_auto_method(self, env_names):
+        """Backup using automatic method selection"""
+        for env_name in env_names:
             try:
-                exported_result = self.export_environment(env['name'])
-                if exported_result == "EMPTY":
-                    # Environment is empty, skip package detection
-                    temp_yaml = None
-                elif isinstance(exported_result, Path):
-                    temp_yaml = exported_result
+                # Try conda-pack first
+                from utils.environment_cloner import EnvironmentCloner
+                cloner = EnvironmentCloner()
+                cloner.clone_environment(env_name, f"{env_name}_backup", method="conda-pack")
+                print(f"✅ Backed up {env_name} with conda-pack")
             except:
-                pass  # Continue without package detection if export fails
+                # Fall back to YAML
+                self.export_environment(env_name)
+                print(f"✅ Backed up {env_name} with YAML")
+
+    def _clone_fallback(self, env_name, new_name, method, remove_original):
+        """Fallback clone method using built-in functionality"""
+        if method == "yaml" or method == "auto":
+            # Export and recreate
+            yaml_file = self.export_environment(env_name)
+            if yaml_file:
+                success = self._create_from_yaml(yaml_file, new_name)
+                if success and remove_original:
+                    self._remove_environment(env_name)
+        else:
+            print(f"{Fore.RED}Conda-pack method not available in fallback mode.{Style.RESET_ALL}")
+
+    def _create_from_yaml(self, yaml_file, new_name):
+        """Create environment from YAML file"""
+        try:
+            cmd = f"conda env create -f {yaml_file} -n {new_name}"
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
             
-            new_name = self.generate_new_name(
-                env['name'], env['python_version'], env['r_version'], existing_names, temp_yaml
-            )
+            if result.returncode == 0:
+                print(f"{Fore.GREEN}✅ Created environment '{new_name}'{Style.RESET_ALL}")
+                return True
+            else:
+                print(f"{Fore.RED}❌ Failed to create environment '{new_name}'{Style.RESET_ALL}")
+                print(f"Error: {result.stderr}")
+                return False
+        except Exception as e:
+            print(f"{Fore.RED}Error creating environment: {e}{Style.RESET_ALL}")
+            return False
+
+    def _remove_environment(self, env_name):
+        """Remove an environment"""
+        try:
+            cmd = f"conda env remove -n {env_name} -y"
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
             
-            # Show if name will be cleaned
-            cleaned_base = self._clean_existing_versions(env['name'].lower())
-            name_info = env['name']
-            if cleaned_base != env['name'].lower():
-                name_info += f" (cleaned: {cleaned_base})"
+            if result.returncode == 0:
+                print(f"{Fore.GREEN}✅ Removed environment '{env_name}'{Style.RESET_ALL}")
+                return True
+            else:
+                print(f"{Fore.RED}❌ Failed to remove environment '{env_name}'{Style.RESET_ALL}")
+                print(f"Error: {result.stderr}")
+                return False
+        except Exception as e:
+            print(f"{Fore.RED}Error removing environment: {e}{Style.RESET_ALL}")
+            return False
+
+    def _process_yaml_files(self):
+        """Process existing YAML files for environment creation"""
+        if not self.export_dir.exists():
+            print(f"{Fore.YELLOW}No YAML files directory found.{Style.RESET_ALL}")
+            return
+        
+        yaml_files = [f for f in self.export_dir.iterdir() if f.suffix in ['.yml', '.yaml']]
+        
+        if not yaml_files:
+            print(f"{Fore.YELLOW}No YAML files found.{Style.RESET_ALL}")
+            return
+        
+        print(f"Found {len(yaml_files)} YAML files:")
+        for i, file in enumerate(yaml_files, 1):
+            print(f"{i:2}. {file.name}")
+        
+        use_auto_naming = input("Use automatic naming for new environments? (Y/n): ").strip().lower() != 'n'
+        
+        for yaml_file in yaml_files:
+            base_name = yaml_file.stem
+            new_name = f"{base_name}_restored" if use_auto_naming else input(f"New name for {yaml_file.name}: ").strip()
             
-            print(f"{i:2}. {name_info}")
-            print(f"    Python: {python_ver}, R: {r_ver}")
+            if new_name:
+                self._create_from_yaml(str(yaml_file), new_name)
+
+    def _process_conda_pack_files(self):
+        """Process existing conda-pack files for environment creation"""
+        pack_dir = Path("cloned_environments")
+        if not pack_dir.exists():
+            print(f"{Fore.YELLOW}No conda-pack files directory found.{Style.RESET_ALL}")
+            return
+        
+        pack_files = [f for f in pack_dir.iterdir() if f.suffix == '.gz' and f.name.endswith('.tar.gz')]
+        
+        if not pack_files:
+            print(f"{Fore.YELLOW}No conda-pack files found.{Style.RESET_ALL}")
+            return
+        
+        print(f"Found {len(pack_files)} conda-pack files:")
+        for i, file in enumerate(pack_files, 1):
+            print(f"{i:2}. {file.name}")
+        
+        use_auto_naming = input("Use automatic naming for new environments? (Y/n): ").strip().lower() != 'n'
+        
+        for pack_file in pack_files:
+            base_name = pack_file.stem.replace('.tar', '')  # Remove .tar.gz
+            new_name = f"{base_name}_unpacked" if use_auto_naming else input(f"New name for {pack_file.name}: ").strip()
             
-            # Show package versions if detected
-            if temp_yaml and isinstance(temp_yaml, Path):
-                package_versions = self._extract_package_versions_from_yaml(temp_yaml, env['name'])
-                if package_versions:
-                    pkg_info = ', '.join([f"{pkg}={ver}" for pkg, ver in list(package_versions.items())[:2]])
-                    print(f"    📦 Key packages: {pkg_info}")
+            if new_name:
+                self._unpack_environment(str(pack_file), new_name)
+
+    def _unpack_environment(self, pack_file, new_name):
+        """Unpack a conda-pack environment"""
+        try:
+            # Get conda info to find environments directory
+            result = subprocess.run("conda info --envs", shell=True, capture_output=True, text=True)
             
-            print(f"    → {new_name}")
-            if new_name.endswith('_v1') or '_v' in new_name.split('_')[-1]:
-                print(f"    {Fore.YELLOW}⚠ Conflict resolved with version suffix{Style.RESET_ALL}")
-            print()
+            # Parse conda envs output to find the base path
+            lines = result.stdout.strip().split('\n')
+            envs_path = None
+            for line in lines:
+                if 'envs directories' in line:
+                    continue
+                if line.strip() and not line.startswith('#') and '*' not in line:
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        env_path = parts[-1]
+                        envs_path = os.path.dirname(env_path)
+                        break
+            
+            if not envs_path:
+                envs_path = os.path.expanduser("~/miniconda3/envs")
+            
+            env_path = os.path.join(envs_path, new_name)
+            
+            # Create directory and unpack
+            os.makedirs(env_path, exist_ok=True)
+            
+            cmd = f"cd '{env_path}' && tar -xzf '{pack_file}'"
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                # Try to run conda-unpack if available
+                unpack_cmd = f"cd '{env_path}' && ./bin/conda-unpack"
+                result2 = subprocess.run(unpack_cmd, shell=True, capture_output=True, text=True)
+                
+                if result2.returncode == 0:
+                    print(f"{Fore.GREEN}✅ Unpacked environment '{new_name}'{Style.RESET_ALL}")
+                    return True
+                else:
+                    print(f"{Fore.YELLOW}⚠️  Unpacked environment '{new_name}' but conda-unpack failed{Style.RESET_ALL}")
+                    print(f"You may need to manually run: cd {env_path} && ./bin/conda-unpack")
+                    return True
+            else:
+                print(f"{Fore.RED}❌ Failed to unpack environment '{new_name}'{Style.RESET_ALL}")
+                print(f"Error: {result.stderr}")
+                return False
+                
+        except Exception as e:
+            print(f"{Fore.RED}Error unpacking environment: {e}{Style.RESET_ALL}")
+            return False
+
+    def _handle_list_environments(self):
+        """Handle listing and displaying all environments with basic info"""
+        print(f"\n{Fore.CYAN}=== 📋 List All Environments ==={Style.RESET_ALL}")
+        print("📋 Loading environment list...")
+        
+        # Get basic environment list without heavy processing
+        try:
+            result = subprocess.run("conda env list", shell=True, capture_output=True, text=True)
+            if result.returncode != 0:
+                print(f"{Fore.RED}Failed to get environment list!{Style.RESET_ALL}")
+                return
+            
+            lines = result.stdout.strip().split('\n')
+            environments = []
+            
+            for line in lines:
+                line = line.strip()
+                if line and not line.startswith('#') and line != "":
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        env_name = parts[0]
+                        env_path = parts[-1]
+                        # Skip if name contains asterisk (current env marker)
+                        if '*' in env_name:
+                            env_name = env_name.replace('*', '').strip()
+                        environments.append({'name': env_name, 'path': env_path})
+            
+            if not environments:
+                print(f"{Fore.RED}No environments found!{Style.RESET_ALL}")
+                return
+            
+            print(f"\n{Fore.CYAN}Found {len(environments)} environments:{Style.RESET_ALL}")
+            print(f"{'No.':<4} {'Name':<25} {'Location'}")
+            print("-" * 70)
+            
+            for i, env in enumerate(environments, 1):
+                location = env['path'][:40] + "..." if len(env['path']) > 40 else env['path']
+                print(f"{i:<4} {env['name']:<25} {location}")
+            
+            print(f"\nTotal: {len(environments)} environments")
+            print(f"\n{Fore.YELLOW}💡 For detailed analysis with Python/R versions, use processing options.{Style.RESET_ALL}")
+            
+        except Exception as e:
+            print(f"{Fore.RED}Error listing environments: {e}{Style.RESET_ALL}")
 
     def _handle_process_all(self):
         """Handle processing all environments"""
