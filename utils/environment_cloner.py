@@ -92,21 +92,25 @@ class EnvironmentCloner:
         package_list = []
         
         for line in packages.split('\n'):
-            if line.startswith('python '):
-                match = re.search(r'python\s+(\d+\.\d+)', line)
-                if match:
-                    python_version = match.group(1)
-            elif line.startswith('r-base '):
-                match = re.search(r'r-base\s+(\d+\.\d+)', line)
-                if match:
-                    r_version = match.group(1)
-            
-            # Extract package name and version for each line
             if line.strip() and not line.startswith('#'):
                 parts = line.split()
                 if len(parts) >= 2:
                     pkg_name = parts[0]
                     pkg_version = parts[1]
+                    
+                    # Check for Python version
+                    if pkg_name == 'python':
+                        match = re.search(r'(\d+\.\d+)', pkg_version)
+                        if match:
+                            python_version = match.group(1)
+                    
+                    # Check for R version
+                    elif pkg_name == 'r-base':
+                        match = re.search(r'(\d+\.\d+)', pkg_version)
+                        if match:
+                            r_version = match.group(1)
+                    
+                    # Add to package list
                     package_list.append(f"{pkg_name}={pkg_version}")
         
         return {
