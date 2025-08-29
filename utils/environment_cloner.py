@@ -86,9 +86,10 @@ class EnvironmentCloner:
         except subprocess.CalledProcessError:
             packages = ""
         
-        # Detect Python version
+        # Detect Python version and extract package list
         python_version = None
         r_version = None
+        package_list = []
         
         for line in packages.split('\n'):
             if line.startswith('python '):
@@ -99,13 +100,21 @@ class EnvironmentCloner:
                 match = re.search(r'r-base\s+(\d+\.\d+)', line)
                 if match:
                     r_version = match.group(1)
+            
+            # Extract package name and version for each line
+            if line.strip() and not line.startswith('#'):
+                parts = line.split()
+                if len(parts) >= 2:
+                    pkg_name = parts[0]
+                    pkg_version = parts[1]
+                    package_list.append(f"{pkg_name}={pkg_version}")
         
         return {
             'name': env_name,
             'path': env_path,
             'python_version': python_version,
             'r_version': r_version,
-            'packages': [line.strip() for line in packages.split('\n') if line.strip()]
+            'packages': package_list
         }
     
     def _generate_new_name(self, env_info, new_name_input, interactive=False):

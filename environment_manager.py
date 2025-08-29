@@ -1471,11 +1471,8 @@ class EnvironmentManager:
         if not clone_method:
             return
         
-        # Ask about removing original
-        remove_original = input(f"Remove original environment '{env_name}' after successful clone? (y/N): ").strip().lower()
-        
-        # Process clone
-        self._process_clone(env_name, new_name, clone_method, remove_original == 'y')
+        # Process clone (removal confirmation will happen after successful clone)
+        self._process_clone(env_name, new_name, clone_method, True)
 
     def _handle_unpack_archive(self):
         """Handle unpacking conda-pack archives."""
