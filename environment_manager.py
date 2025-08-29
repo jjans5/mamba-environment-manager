@@ -1395,7 +1395,7 @@ class EnvironmentManager:
             print("4. [ANALYZE] Analyze exported YAML files for duplicates")
             print("5. [BATCH]  Batch processing (multiple environments)")
             print("6. [DEBUG]  Debug and analyze failures")
-            print("7. [KERNEL] Create Jupyter kernels")
+            print("7. [KERNEL] Manage Jupyter kernels")
             print("8. [DELETE] Delete environments")
             print("9. [LIST]   List all environments")
             print("10. [CLEAN]  Clean up backup files (YAML/conda-pack)")

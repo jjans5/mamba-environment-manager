@@ -3,6 +3,12 @@
 ## Overview
 Significantly expanded the Jupyter kernel management functionality to provide comprehensive kernel lifecycle management, advanced configuration, and HPC/cluster support with custom environment variables.
 
+## Requirements
+- **Python**: 3.6+
+- **Required packages**: `PyYAML>=6.0`, `colorama>=0.4.0`, `conda-pack>=0.7.0`
+- **Conda/Mamba**: For environment management
+- **Jupyter**: For kernel management functionality
+
 ## What Was Added
 
 ### 🆕 New Menu Options
