@@ -1624,14 +1624,19 @@ class EnvironmentManager:
             print(f"{Fore.RED}Invalid choice!{Style.RESET_ALL}")
 
     def _handle_recreate_kernels(self):
-        """Handle Jupyter kernel recreation"""
-        print(f"\n{Fore.CYAN}=== 🔬 Create Jupyter Kernels ==={Style.RESET_ALL}")
+        """Handle Jupyter kernel management"""
+        print(f"\n{Fore.CYAN}=== 🔬 Jupyter Kernel Manager ==={Style.RESET_ALL}")
         print("1. Create kernels for all environments")
-        print("2. Select specific environments")
+        print("2. Select specific environments to create")
         print("3. Select by environment numbers (list input)")
-        print("4. Back to main menu")
+        print("4. Remove existing kernels")
+        print("5. Reinstall kernels")
+        print("6. Rename kernel display names")
+        print("7. Configure advanced kernel settings")
+        print("8. List installed kernels")
+        print("9. Back to main menu")
         
-        choice = input("\nEnter your choice (1-4): ").strip()
+        choice = input("\nEnter your choice (1-9): ").strip()
         
         if choice == "1":
             self.recreate_jupyter_kernels()
@@ -1642,6 +1647,16 @@ class EnvironmentManager:
         elif choice == "3":
             self._handle_kernel_recreation_by_numbers()
         elif choice == "4":
+            self._handle_kernel_removal()
+        elif choice == "5":
+            self._handle_kernel_reinstall()
+        elif choice == "6":
+            self._handle_kernel_rename()
+        elif choice == "7":
+            self._handle_advanced_kernel_config()
+        elif choice == "8":
+            self._list_installed_kernels()
+        elif choice == "9":
             return
         else:
             print(f"{Fore.RED}Invalid choice!{Style.RESET_ALL}")
@@ -3067,6 +3082,510 @@ class EnvironmentManager:
         
         # Default to user local directory
         return possible_dirs[0]
+
+    def _list_installed_kernels(self):
+        """List all installed Jupyter kernels"""
+        print(f"\n{Fore.CYAN}=== 📋 Installed Jupyter Kernels ==={Style.RESET_ALL}")
+        
+        try:
+            # Get kernel specs using jupyter command
+            result = subprocess.run(
+                ['jupyter', 'kernelspec', 'list', '--json'],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            if result.returncode == 0:
+                import json
+                kernel_data = json.loads(result.stdout)
+                kernels = kernel_data.get('kernelspecs', {})
+                
+                if not kernels:
+                    print(f"{Fore.YELLOW}No kernels found{Style.RESET_ALL}")
+                    return
+                
+                print(f"\n{Fore.GREEN}Found {len(kernels)} kernel(s):{Style.RESET_ALL}")
+                for i, (kernel_name, kernel_info) in enumerate(kernels.items(), 1):
+                    display_name = kernel_info.get('spec', {}).get('display_name', kernel_name)
+                    language = kernel_info.get('spec', {}).get('language', 'unknown')
+                    resource_dir = kernel_info.get('resource_dir', 'unknown')
+                    
+                    print(f"  {i:2d}. {kernel_name}")
+                    print(f"      Display Name: {display_name}")
+                    print(f"      Language: {language}")
+                    print(f"      Location: {resource_dir}")
+                    print()
+            else:
+                print(f"{Fore.RED}Error listing kernels: {result.stderr}{Style.RESET_ALL}")
+                
+        except subprocess.TimeoutExpired:
+            print(f"{Fore.RED}Timeout while listing kernels{Style.RESET_ALL}")
+        except Exception as e:
+            print(f"{Fore.RED}Error listing kernels: {e}{Style.RESET_ALL}")
+
+    def _handle_kernel_removal(self):
+        """Handle removal of Jupyter kernels"""
+        print(f"\n{Fore.CYAN}=== 🗑️  Remove Jupyter Kernels ==={Style.RESET_ALL}")
+        
+        try:
+            # Get available kernels
+            result = subprocess.run(
+                ['jupyter', 'kernelspec', 'list', '--json'],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            if result.returncode != 0:
+                print(f"{Fore.RED}Error getting kernel list: {result.stderr}{Style.RESET_ALL}")
+                return
+            
+            import json
+            kernel_data = json.loads(result.stdout)
+            kernels = kernel_data.get('kernelspecs', {})
+            
+            if not kernels:
+                print(f"{Fore.YELLOW}No kernels found to remove{Style.RESET_ALL}")
+                return
+            
+            # Display kernels
+            kernel_names = list(kernels.keys())
+            print(f"\n{Fore.GREEN}Available kernels for removal:{Style.RESET_ALL}")
+            print(f"{Fore.RED}⚠️  WARNING: Kernel removal is permanent!{Style.RESET_ALL}")
+            
+            for i, kernel_name in enumerate(kernel_names, 1):
+                display_name = kernels[kernel_name].get('spec', {}).get('display_name', kernel_name)
+                print(f"  {i:2d}. {kernel_name} ({display_name})")
+            
+            # Get selection
+            print(f"\n{Fore.CYAN}Enter kernel numbers to remove:{Style.RESET_ALL}")
+            print("Examples: [1,3,5] or [2,4-7] or single numbers")
+            
+            user_input = input("Kernel numbers: ").strip()
+            if not user_input:
+                print(f"{Fore.YELLOW}No input provided - cancelling removal{Style.RESET_ALL}")
+                return
+            
+            # Parse input (reuse existing parsing logic)
+            selected_numbers = self._parse_number_list(user_input)
+            selected_kernels = []
+            
+            for num in selected_numbers:
+                if 1 <= num <= len(kernel_names):
+                    selected_kernels.append(kernel_names[num - 1])
+                else:
+                    print(f"{Fore.YELLOW}Warning: Number {num} is out of range{Style.RESET_ALL}")
+            
+            if not selected_kernels:
+                print(f"{Fore.YELLOW}No valid kernels selected{Style.RESET_ALL}")
+                return
+            
+            # Show what will be removed
+            print(f"\n{Fore.RED}⚠️  The following kernels will be PERMANENTLY REMOVED:{Style.RESET_ALL}")
+            for kernel_name in selected_kernels:
+                display_name = kernels[kernel_name].get('spec', {}).get('display_name', kernel_name)
+                print(f"  🗑️  {kernel_name} ({display_name})")
+            
+            # Confirm removal
+            confirm = input(f"\n{Fore.YELLOW}Are you sure? (yes/NO): {Style.RESET_ALL}").strip().lower()
+            if confirm != 'yes':
+                print("Removal cancelled")
+                return
+            
+            # Remove kernels
+            print(f"\n{Fore.CYAN}Removing kernels...{Style.RESET_ALL}")
+            removed_count = 0
+            
+            for kernel_name in selected_kernels:
+                try:
+                    result = subprocess.run(
+                        ['jupyter', 'kernelspec', 'remove', kernel_name, '-f'],
+                        capture_output=True,
+                        text=True,
+                        timeout=30
+                    )
+                    
+                    if result.returncode == 0:
+                        print(f"  ✅ Removed: {kernel_name}")
+                        removed_count += 1
+                    else:
+                        print(f"  ❌ Failed to remove {kernel_name}: {result.stderr}")
+                        
+                except Exception as e:
+                    print(f"  ❌ Error removing {kernel_name}: {e}")
+            
+            print(f"\n{Fore.GREEN}✅ Removed {removed_count} kernel(s)!{Style.RESET_ALL}")
+            
+        except Exception as e:
+            print(f"{Fore.RED}Error in kernel removal: {e}{Style.RESET_ALL}")
+
+    def _handle_kernel_reinstall(self):
+        """Handle reinstallation of kernels for existing environments"""
+        print(f"\n{Fore.CYAN}=== 🔄 Reinstall Jupyter Kernels ==={Style.RESET_ALL}")
+        
+        # First remove existing kernels, then recreate
+        environments = self._get_environments_for_processing()
+        if not environments:
+            return
+        
+        # Show environments
+        print(f"\n{Fore.GREEN}Select environments to reinstall kernels for:{Style.RESET_ALL}")
+        for i, env_info in enumerate(environments, 1):
+            env_name = env_info['name']
+            has_python = self._environment_has_python(env_info['path'])
+            has_r = self._environment_has_r(env_info['path'])
+            kernel_types = []
+            if has_python:
+                kernel_types.append("Python")
+            if has_r:
+                kernel_types.append("R")
+            kernel_info = ", ".join(kernel_types) if kernel_types else "No kernels"
+            print(f"  {i:2d}. {env_name} ({kernel_info})")
+        
+        # Get selection
+        user_input = input("\nEnvironment numbers: ").strip()
+        if not user_input:
+            return
+        
+        selected_numbers = self._parse_number_list(user_input)
+        selected_envs = []
+        
+        for num in selected_numbers:
+            if 1 <= num <= len(environments):
+                selected_envs.append(environments[num - 1]['name'])
+        
+        if not selected_envs:
+            print(f"{Fore.YELLOW}No valid environments selected{Style.RESET_ALL}")
+            return
+        
+        # Confirm reinstall
+        print(f"\n{Fore.YELLOW}This will remove and recreate kernels for: {', '.join(selected_envs)}{Style.RESET_ALL}")
+        confirm = input("Continue? (y/N): ").strip().lower()
+        if confirm != 'y':
+            return
+        
+        # Reinstall kernels
+        print(f"\n{Fore.CYAN}Reinstalling kernels...{Style.RESET_ALL}")
+        
+        for env_name in selected_envs:
+            print(f"\n🔄 Processing {env_name}...")
+            
+            # Remove existing kernels for this environment
+            self._remove_kernels_for_environment(env_name)
+            
+            # Recreate kernels
+            success = self.recreate_jupyter_kernels([env_name])
+            if success:
+                print(f"  ✅ Reinstalled kernels for {env_name}")
+            else:
+                print(f"  ❌ Failed to reinstall kernels for {env_name}")
+        
+        print(f"\n{Fore.GREEN}✅ Kernel reinstallation completed!{Style.RESET_ALL}")
+
+    def _handle_kernel_rename(self):
+        """Handle renaming of kernel display names"""
+        print(f"\n{Fore.CYAN}=== ✏️  Rename Kernel Display Names ==={Style.RESET_ALL}")
+        
+        try:
+            # Get available kernels
+            result = subprocess.run(
+                ['jupyter', 'kernelspec', 'list', '--json'],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            if result.returncode != 0:
+                print(f"{Fore.RED}Error getting kernel list: {result.stderr}{Style.RESET_ALL}")
+                return
+            
+            import json
+            kernel_data = json.loads(result.stdout)
+            kernels = kernel_data.get('kernelspecs', {})
+            
+            if not kernels:
+                print(f"{Fore.YELLOW}No kernels found{Style.RESET_ALL}")
+                return
+            
+            # Display kernels
+            kernel_names = list(kernels.keys())
+            print(f"\n{Fore.GREEN}Available kernels:{Style.RESET_ALL}")
+            
+            for i, kernel_name in enumerate(kernel_names, 1):
+                display_name = kernels[kernel_name].get('spec', {}).get('display_name', kernel_name)
+                print(f"  {i:2d}. {kernel_name} → '{display_name}'")
+            
+            # Get selection
+            try:
+                choice = int(input(f"\n{Fore.CYAN}Select kernel to rename (1-{len(kernel_names)}): {Style.RESET_ALL}").strip())
+                if not 1 <= choice <= len(kernel_names):
+                    print(f"{Fore.RED}Invalid choice{Style.RESET_ALL}")
+                    return
+            except ValueError:
+                print(f"{Fore.RED}Invalid input{Style.RESET_ALL}")
+                return
+            
+            selected_kernel = kernel_names[choice - 1]
+            current_display_name = kernels[selected_kernel].get('spec', {}).get('display_name', selected_kernel)
+            
+            print(f"\n{Fore.CYAN}Current display name: '{current_display_name}'{Style.RESET_ALL}")
+            new_display_name = input("Enter new display name: ").strip()
+            
+            if not new_display_name:
+                print(f"{Fore.YELLOW}No name provided{Style.RESET_ALL}")
+                return
+            
+            # Update kernel.json
+            kernel_dir = Path(kernels[selected_kernel]['resource_dir'])
+            kernel_json_path = kernel_dir / "kernel.json"
+            
+            if not kernel_json_path.exists():
+                print(f"{Fore.RED}Kernel configuration file not found: {kernel_json_path}{Style.RESET_ALL}")
+                return
+            
+            # Read, modify, and write kernel config
+            with open(kernel_json_path, 'r') as f:
+                kernel_config = json.load(f)
+            
+            kernel_config['display_name'] = new_display_name
+            
+            with open(kernel_json_path, 'w') as f:
+                json.dump(kernel_config, f, indent=2)
+            
+            print(f"\n{Fore.GREEN}✅ Renamed kernel '{selected_kernel}' display name to '{new_display_name}'{Style.RESET_ALL}")
+            
+        except Exception as e:
+            print(f"{Fore.RED}Error renaming kernel: {e}{Style.RESET_ALL}")
+
+    def _handle_advanced_kernel_config(self):
+        """Handle advanced kernel configuration with environment variables"""
+        print(f"\n{Fore.CYAN}=== ⚙️  Advanced Kernel Configuration ==={Style.RESET_ALL}")
+        
+        # Get environments
+        environments = self._get_environments_for_processing()
+        if not environments:
+            return
+        
+        print(f"\n{Fore.GREEN}Select environment to configure:{Style.RESET_ALL}")
+        for i, env_info in enumerate(environments, 1):
+            env_name = env_info['name']
+            print(f"  {i:2d}. {env_name}")
+        
+        try:
+            choice = int(input(f"\n{Fore.CYAN}Select environment (1-{len(environments)}): {Style.RESET_ALL}").strip())
+            if not 1 <= choice <= len(environments):
+                print(f"{Fore.RED}Invalid choice{Style.RESET_ALL}")
+                return
+        except ValueError:
+            print(f"{Fore.RED}Invalid input{Style.RESET_ALL}")
+            return
+        
+        selected_env = environments[choice - 1]
+        env_name = selected_env['name']
+        env_path = selected_env['path']
+        
+        print(f"\n{Fore.CYAN}Configuring advanced settings for: {env_name}{Style.RESET_ALL}")
+        
+        # Generate default environment variables
+        default_env_vars = self._generate_default_env_vars(env_path)
+        
+        print(f"\n{Fore.GREEN}Default environment variables generated:{Style.RESET_ALL}")
+        for key, value in default_env_vars.items():
+            print(f"  {key}: {value[:100]}{'...' if len(value) > 100 else ''}")
+        
+        # Allow user to modify
+        print(f"\n{Fore.CYAN}Modify environment variables? (y/N): {Style.RESET_ALL}", end="")
+        if input().strip().lower() == 'y':
+            default_env_vars = self._interactive_env_var_editor(default_env_vars)
+        
+        # Get kernel type
+        print(f"\n{Fore.CYAN}Select kernel type:{Style.RESET_ALL}")
+        print("1. Python kernel")
+        print("2. R kernel")
+        
+        kernel_choice = input("Choice (1-2): ").strip()
+        is_python = kernel_choice == "1"
+        
+        if kernel_choice not in ["1", "2"]:
+            print(f"{Fore.RED}Invalid choice{Style.RESET_ALL}")
+            return
+        
+        # Create advanced kernel
+        success = self._create_advanced_kernel(env_name, env_path, default_env_vars, is_python)
+        
+        if success:
+            print(f"\n{Fore.GREEN}✅ Advanced kernel created successfully!{Style.RESET_ALL}")
+        else:
+            print(f"\n{Fore.RED}❌ Failed to create advanced kernel{Style.RESET_ALL}")
+
+    def _parse_number_list(self, user_input: str) -> list:
+        """Parse number list input like [1,3,5] or [2,4-7]"""
+        if user_input.startswith('[') and user_input.endswith(']'):
+            number_str = user_input[1:-1]
+        else:
+            number_str = user_input
+        
+        selected_numbers = []
+        for part in number_str.split(','):
+            part = part.strip()
+            if '-' in part:
+                start, end = map(int, part.split('-'))
+                selected_numbers.extend(range(start, end + 1))
+            else:
+                selected_numbers.append(int(part))
+        
+        return sorted(set(selected_numbers))
+
+    def _remove_kernels_for_environment(self, env_name: str):
+        """Remove all kernels associated with an environment"""
+        try:
+            # Try to remove Python kernel
+            python_kernel_name = f"python_{env_name}"
+            subprocess.run(['jupyter', 'kernelspec', 'remove', python_kernel_name, '-f'], 
+                         capture_output=True, timeout=30)
+            
+            # Try to remove R kernel  
+            r_kernel_name = f"ir_{env_name}"
+            subprocess.run(['jupyter', 'kernelspec', 'remove', r_kernel_name, '-f'],
+                         capture_output=True, timeout=30)
+            
+        except Exception:
+            pass  # Ignore errors if kernels don't exist
+
+    def _generate_default_env_vars(self, env_path: str) -> dict:
+        """Generate default environment variables for a conda environment"""
+        env_vars = {}
+        
+        # PATH - Add environment bin directory
+        env_bin = str(Path(env_path) / "bin")
+        current_path = os.environ.get('PATH', '')
+        env_vars['PATH'] = f"{env_bin}:{current_path}"
+        
+        # LD_LIBRARY_PATH - Add environment lib directory
+        env_lib = str(Path(env_path) / "lib")
+        current_ld_path = os.environ.get('LD_LIBRARY_PATH', '')
+        if current_ld_path:
+            env_vars['LD_LIBRARY_PATH'] = f"{env_lib}:{current_ld_path}"
+        else:
+            env_vars['LD_LIBRARY_PATH'] = env_lib
+        
+        # PYTHONPATH - Usually empty for clean environment
+        env_vars['PYTHONPATH'] = ""
+        
+        # CONDA_DEFAULT_ENV
+        env_name = Path(env_path).name
+        env_vars['CONDA_DEFAULT_ENV'] = env_name
+        
+        # CONDA_PREFIX
+        env_vars['CONDA_PREFIX'] = str(env_path)
+        
+        return env_vars
+
+    def _interactive_env_var_editor(self, env_vars: dict) -> dict:
+        """Interactive editor for environment variables"""
+        print(f"\n{Fore.CYAN}=== Environment Variable Editor ==={Style.RESET_ALL}")
+        print("Commands: 'add <key> <value>', 'edit <key>', 'delete <key>', 'list', 'done'")
+        
+        while True:
+            command = input(f"\n{Fore.CYAN}EnvVar> {Style.RESET_ALL}").strip()
+            
+            if command == 'done':
+                break
+            elif command == 'list':
+                print(f"\n{Fore.GREEN}Current environment variables:{Style.RESET_ALL}")
+                for key, value in env_vars.items():
+                    print(f"  {key}: {value}")
+            elif command.startswith('add '):
+                parts = command.split(' ', 2)
+                if len(parts) >= 3:
+                    key, value = parts[1], parts[2]
+                    env_vars[key] = value
+                    print(f"Added: {key} = {value}")
+                else:
+                    print("Usage: add <key> <value>")
+            elif command.startswith('edit '):
+                key = command.split(' ', 1)[1] if ' ' in command else ''
+                if key in env_vars:
+                    print(f"Current value: {env_vars[key]}")
+                    new_value = input("New value: ")
+                    env_vars[key] = new_value
+                    print(f"Updated: {key} = {new_value}")
+                else:
+                    print(f"Key '{key}' not found")
+            elif command.startswith('delete '):
+                key = command.split(' ', 1)[1] if ' ' in command else ''
+                if key in env_vars:
+                    del env_vars[key]
+                    print(f"Deleted: {key}")
+                else:
+                    print(f"Key '{key}' not found")
+            else:
+                print("Unknown command. Try 'list', 'add <key> <value>', 'edit <key>', 'delete <key>', or 'done'")
+        
+        return env_vars
+
+    def _create_advanced_kernel(self, env_name: str, env_path: str, env_vars: dict, is_python: bool = True) -> bool:
+        """Create an advanced kernel with custom environment variables"""
+        try:
+            if is_python:
+                kernel_name = f"python_{env_name}_advanced"
+                display_name = f"Python ({env_name}) [Advanced]"
+                language = "python"
+                
+                # Python kernel executable
+                python_exe = str(Path(env_path) / "bin" / "python")
+                if not Path(python_exe).exists():
+                    print(f"{Fore.RED}Python executable not found: {python_exe}{Style.RESET_ALL}")
+                    return False
+                
+                argv = [python_exe, "-m", "ipykernel_launcher", "-f", "{connection_file}"]
+                
+            else:
+                kernel_name = f"ir_{env_name}_advanced"
+                display_name = f"R ({env_name}) [Advanced]"
+                language = "R"
+                
+                # R kernel executable
+                r_exe = str(Path(env_path) / "bin" / "R")
+                if not Path(r_exe).exists():
+                    print(f"{Fore.RED}R executable not found: {r_exe}{Style.RESET_ALL}")
+                    return False
+                
+                argv = [r_exe, "--slave", "-e", "IRkernel::main()", "--args", "{connection_file}"]
+            
+            # Create kernel directory
+            kernel_dir = self._get_kernel_dir(kernel_name)
+            kernel_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Create advanced kernel configuration
+            kernel_config = {
+                "argv": argv,
+                "display_name": display_name,
+                "language": language,
+                "env": env_vars,
+                "metadata": {
+                    "debugger": True,
+                    "advanced_config": True,
+                    "environment": env_name
+                }
+            }
+            
+            # Write kernel.json
+            kernel_json_path = kernel_dir / "kernel.json"
+            with open(kernel_json_path, 'w') as f:
+                json.dump(kernel_config, f, indent=2)
+            
+            self.logger.info(f"Created advanced {language} kernel for {env_name}")
+            print(f"  ✅ Created: {display_name}")
+            print(f"  📁 Location: {kernel_dir}")
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error creating advanced kernel for {env_name}: {e}")
+            print(f"  ❌ Error: {e}")
+            return False
 
 def main():
     """Main entry point"""
