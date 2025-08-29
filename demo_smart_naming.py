@@ -15,7 +15,7 @@ def demonstrate_smart_naming():
     cloner = EnvironmentCloner()
     
     # Test archive
-    archive_path = './cloned_environments/py_jjans_3.10_yaml.tar.gz'
+    archive_path = './cloned_environments/research_env_3.10_yaml.tar.gz'
     
     print("1. Enhanced Unpacking Features:")
     print("   ✓ Auto-generated names with version suffixes")
@@ -91,7 +91,7 @@ def demonstrate_smart_naming():
         print("6. HPC Installation Example:")
         envs_dir = cloner._get_conda_envs_directory()
         print(f"   Current envs directory: {envs_dir}")
-        print(f"   On HPC would be: /scratch/treutlein/scratch/jjans/miniforge3/envs/")
+        print(f"   On HPC would be: /scratch/username/miniforge3/envs/")
         print(f"   Final environment: <envs_dir>/{auto_name}/")
         print(f"   Activation: conda activate {auto_name}")
         print()

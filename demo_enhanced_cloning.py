@@ -16,9 +16,9 @@ def demo_interactive_naming():
     
     cloner = EnvironmentCloner()
     
-    # Mock environment data (simulates a real environment like py_jjans_3.7_harmony)
+        # Mock environment data (simulates a real environment like my_research_env)
     mock_env = {
-        'name': 'py_jjans_3.7_harmony_yaml',
+        'name': 'my_research_env_yaml',
         'path': '/fake/path',
         'python_version': '3.7',
         'r_version': None,
@@ -69,8 +69,8 @@ def demo_interactive_naming():
     print()
     
     print("The new name would be:")
-    print(f"  OLD: py_jjans_3.7_harmony -> py_jjans_3.7_harmony_yaml (generic)")
-    print(f"  NEW: py_jjans_3.7_harmony -> {auto_name} (smart)")
+    print(f"  OLD: my_research_env -> my_research_env_yaml (generic)")
+    print(f"  NEW: my_research_env -> {auto_name} (smart)")
 
 if __name__ == "__main__":
     demo_interactive_naming()

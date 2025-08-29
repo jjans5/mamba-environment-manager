@@ -18,7 +18,7 @@ def test_naming_logic():
     # Test cases
     test_cases = [
         {
-            'name': 'py_jjans_3.7_harmony_yaml',
+            'name': 'research_env_yaml',
             'python_version': '3.7',
             'r_version': None,
             'packages': ['harmonypy=0.0.9', 'scanpy=1.8.2', 'pandas=1.3.3']
