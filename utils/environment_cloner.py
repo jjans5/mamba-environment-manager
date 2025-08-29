@@ -647,6 +647,14 @@ class EnvironmentCloner:
     def _create_flexible_yaml(self, original_yaml, flexible_yaml):
         """Create a more flexible version of the YAML file with relaxed dependencies."""
         try:
+            # Extract the target environment name from the flexible_yaml filename
+            # flexible_yaml is like "/path/to/env_name_flexible.yml" 
+            flexible_basename = os.path.basename(flexible_yaml)
+            if flexible_basename.endswith('_flexible.yml'):
+                target_env_name = flexible_basename[:-13]  # Remove '_flexible.yml'
+            else:
+                target_env_name = flexible_basename.replace('.yml', '')
+            
             with open(original_yaml, 'r') as f:
                 content = f.read()
             
@@ -654,8 +662,12 @@ class EnvironmentCloner:
             flexible_lines = []
             
             for line in lines:
-                # Copy header sections as-is
-                if line.startswith('name:') or line.startswith('channels:') or line.startswith('dependencies:') or line.startswith('prefix:') or not line.strip():
+                # Handle name line specially - use target environment name
+                if line.startswith('name:'):
+                    flexible_lines.append(f'name: {target_env_name}')
+                    continue
+                # Copy other header sections as-is
+                elif line.startswith('channels:') or line.startswith('dependencies:') or line.startswith('prefix:') or not line.strip():
                     flexible_lines.append(line)
                     continue
                 
