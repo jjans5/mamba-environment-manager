@@ -1789,15 +1789,8 @@ class EnvironmentManager:
             from utils.environment_cloner import EnvironmentCloner
             cloner = EnvironmentCloner()
             
-            if new_name == "auto":
-                # Use smart naming
-                if clone_method == "conda-pack":
-                    new_name = f"{env_name}_pack"
-                else:
-                    new_name = f"{env_name}_yaml"
-            
             print(f"[INFO] Starting clone operation for '{env_name}' -> '{new_name}'")
-            success = cloner.clone_environment(env_name, new_name, method=clone_method)
+            success = cloner.clone_environment(env_name, new_name, method=clone_method, interactive=True)
             
             if success and remove_original:
                 confirm = input(f"Clone successful! Really remove original '{env_name}'? (yes/no): ").strip().lower()

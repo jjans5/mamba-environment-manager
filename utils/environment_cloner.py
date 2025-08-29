@@ -13,6 +13,7 @@ import subprocess
 import tarfile
 import tempfile
 import shutil
+import importlib.util
 import re
 from pathlib import Path
 
@@ -104,35 +105,265 @@ class EnvironmentCloner:
             'path': env_path,
             'python_version': python_version,
             'r_version': r_version,
-            'packages': packages
+            'packages': [line.strip() for line in packages.split('\n') if line.strip()]
         }
     
-    def _generate_new_name(self, old_name, new_name_input):
-        """Generate new environment name using naming scheme."""
-        if new_name_input and new_name_input != "auto":
+    def _generate_new_name(self, env_info, new_name_input, interactive=False):
+        """Generate new environment name using naming scheme with package detection.
+        
+        Args:
+            env_info (dict): Environment information with versions and packages
+            new_name_input (str): User input for naming ('auto', 'original', or custom name)
+            interactive (bool): Whether to show interactive naming options
+        """
+        if new_name_input and new_name_input not in ["auto", "original"]:
             return new_name_input
         
-        # Auto-generate name with lowercase and version suffix
-        base_name = old_name.lower()
+        if new_name_input == "original":
+            return env_info['name']
         
-        # Get environment info to detect versions
+        # Auto-generate name with lowercase base
+        base_name = env_info['name'].lower()
+        
+        # Remove common suffixes that shouldn't be in the final name
+        suffixes_to_remove = ['_yaml', '_yml', '_export', '_backup', '_clone', '_copy']
+        for suffix in suffixes_to_remove:
+            if base_name.endswith(suffix):
+                base_name = base_name[:-len(suffix)]
+                break
+        
+        # Detect key packages for enhanced naming
+        key_packages = self._detect_key_packages(env_info)
+        
+        # Build version and package suffixes
+        name_parts = [base_name]
+        
+        # Add Python version
+        if env_info.get('python_version'):
+            py_ver = env_info['python_version'].replace('.', '')
+            version_part = f"py{py_ver}"
+            if version_part not in name_parts:
+                name_parts.append(version_part)
+        
+        # Add R version
+        if env_info.get('r_version'):
+            r_ver = env_info['r_version'].split('.')[0]  # Major version only
+            version_part = f"r{r_ver}"
+            if version_part not in name_parts:
+                name_parts.append(version_part)
+        
+        # Add key package indicators (avoid duplicates)
+        for pkg in key_packages[:2]:  # Limit to top 2 packages to keep name reasonable
+            if pkg not in base_name.lower() and pkg not in name_parts:
+                name_parts.append(pkg)
+        
+        auto_name = '_'.join(name_parts)
+        
+        if interactive:
+            # Show detected information and allow modification
+            print(f"\n[SMART NAMING] Environment analysis:")
+            if env_info.get('python_version'):
+                print(f"  Python: {env_info['python_version']}")
+            if env_info.get('r_version'):
+                print(f"  R: {env_info['r_version']}")
+            if key_packages:
+                print(f"  Key packages: {', '.join(key_packages)}")
+            
+            print(f"  Auto-generated name: {auto_name}")
+            
+            modify = input(f"Use auto-generated name '{auto_name}'? (y/n/edit): ").strip().lower()
+            
+            if modify == 'n':
+                custom_name = input("Enter custom environment name: ").strip()
+                return custom_name if custom_name else auto_name
+            elif modify == 'edit':
+                edited_name = input(f"Edit name (current: {auto_name}): ").strip()
+                return edited_name if edited_name else auto_name
+        
+        return auto_name
+    
+    def _detect_key_packages(self, env_info):
+        """Detect key/important packages in the environment for naming with version support."""
+        key_packages = []
+        
+        # Load user-configurable package indicators
+        package_indicators = self._load_package_config()
+        
+        # Get package list from environment info
+        packages = env_info.get('packages', [])
+        
+        # Parse packages into name-version pairs
+        package_dict = {}
+        for pkg in packages:
+            if '=' in pkg:
+                name, version = pkg.split('=', 1)
+                package_dict[name.lower().strip()] = version.strip()
+            else:
+                package_dict[pkg.lower().strip()] = None
+        
+        # Find matching key packages with version info
+        for indicator, config in package_indicators.items():
+            pkg_list = config.get('packages', [])
+            include_version = config.get('include_version', False)
+            version_format = config.get('version_format', 'major.minor')
+            
+            for pkg in pkg_list:
+                if pkg.lower() in package_dict:
+                    version = package_dict[pkg.lower()]
+                    
+                    if include_version and version:
+                        formatted_version = self._format_version(version, version_format)
+                        if formatted_version:
+                            # Use cleaner version format for naming
+                            clean_version = formatted_version.replace('.', '')
+                            # Handle special cases for cleaner names
+                            if clean_version.startswith('00'):
+                                # For 0.0.x versions, use the patch number
+                                if '.' in formatted_version and formatted_version.count('.') == 2:
+                                    patch_version = formatted_version.split('.')[-1]
+                                    clean_version = f"0{patch_version}"
+                            key_packages.append(f"{indicator}{clean_version}")
+                        else:
+                            key_packages.append(indicator)
+                    else:
+                        key_packages.append(indicator)
+                    break
+        
+        return key_packages
+    
+    def _load_package_config(self):
+        """Load package configuration from config file or use defaults."""
         try:
-            env_info = self._get_environment_info(old_name)
+            # Try to load from package_config.py in the parent directory
+            import sys
+            import os
+            config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'package_config.py')
             
-            # Add version suffixes
-            if env_info['python_version']:
-                py_ver = env_info['python_version'].replace('.', '')
-                base_name += f"_py{py_ver}"
+            if os.path.exists(config_path):
+                # Load the config file
+                spec = importlib.util.spec_from_file_location("package_config", config_path)
+                if spec and spec.loader:
+                    config_module = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(config_module)
+                    return config_module.package_indicators
+        except Exception as e:
+            print(f"[DEBUG] Could not load package config: {e}")
+        
+        # Fallback to default configuration
+        return self._get_default_package_config()
+    
+    def _get_default_package_config(self):
+        """Get default package configuration if config file is not available."""
+        return {
+            'harmony': {
+                'packages': ['harmonypy', 'harmony-pytorch', 'harmony'],
+                'include_version': True,
+                'version_format': 'major.minor'
+            },
+            'scanpy': {
+                'packages': ['scanpy'],
+                'include_version': True,
+                'version_format': 'major.minor'
+            },
+            'seurat': {
+                'packages': ['seurat', 'seuratobject'],
+                'include_version': True,
+                'version_format': 'major'
+            },
+            'pytorch': {
+                'packages': ['torch', 'pytorch'],
+                'include_version': True,
+                'version_format': 'major.minor'
+            },
+            'tensorflow': {
+                'packages': ['tensorflow', 'tensorflow-gpu'],
+                'include_version': True,
+                'version_format': 'major.minor'
+            },
+            'sklearn': {
+                'packages': ['scikit-learn', 'sklearn'],
+                'include_version': True,
+                'version_format': 'major.minor'
+            },
+            'jupyter': {
+                'packages': ['jupyter', 'jupyterlab'],
+                'include_version': False,
+                'version_format': 'major'
+            },
+            'pandas': {
+                'packages': ['pandas'],
+                'include_version': False,
+                'version_format': 'major'
+            },
+            'numpy': {
+                'packages': ['numpy'],
+                'include_version': False,
+                'version_format': 'major'
+            },
+            'plotly': {
+                'packages': ['plotly'],
+                'include_version': False,
+                'version_format': 'major'
+            },
+            'streamlit': {
+                'packages': ['streamlit'],
+                'include_version': True,
+                'version_format': 'major.minor'
+            },
+            'dash': {
+                'packages': ['dash'],
+                'include_version': True,
+                'version_format': 'major.minor'
+            },
+            'flask': {
+                'packages': ['flask'],
+                'include_version': False,
+                'version_format': 'major'
+            },
+            'django': {
+                'packages': ['django'],
+                'include_version': True,
+                'version_format': 'major.minor'
+            },
+            'fastapi': {
+                'packages': ['fastapi'],
+                'include_version': True,
+                'version_format': 'major.minor'
+            },
+        }
+    
+    def _format_version(self, version, version_format):
+        """Format version string according to specified format."""
+        try:
+            # Remove any build information (e.g., "1.8.2+cuda111" -> "1.8.2")
+            clean_version = version.split('+')[0].split('-')[0]
             
-            if env_info['r_version']:
-                r_ver = env_info['r_version'].split('.')[0]  # Major version only
-                base_name += f"_r{r_ver}"
+            # Split version into components
+            parts = clean_version.split('.')
             
+            if version_format == 'major' and len(parts) >= 1:
+                return parts[0]
+            elif version_format == 'major.minor' and len(parts) >= 2:
+                # Handle special case for 0.0.x versions - use 0.0.patch format
+                if parts[0] == '0' and parts[1] == '0' and len(parts) >= 3:
+                    return f"0.0.{parts[2]}"
+                return f"{parts[0]}.{parts[1]}"
+            elif version_format == 'full':
+                return clean_version
+            else:
+                # Default to major.minor if available
+                if len(parts) >= 2:
+                    # Handle special case for 0.0.x versions
+                    if parts[0] == '0' and parts[1] == '0' and len(parts) >= 3:
+                        return f"0.0.{parts[2]}"
+                    return f"{parts[0]}.{parts[1]}"
+                elif len(parts) >= 1:
+                    return parts[0]
+                
         except Exception:
-            # If we can't get version info, just use the base name
             pass
         
-        return base_name
+        return None
     
     def _get_conda_envs_directory(self):
         """Get the conda/mamba environments directory from the active installation."""
@@ -233,7 +464,7 @@ class EnvironmentCloner:
         os.makedirs(fallback_dir, exist_ok=True)
         return fallback_dir
     
-    def clone_with_conda_pack(self, old_env, new_name="auto", output_dir="./cloned_environments"):
+    def clone_with_conda_pack(self, old_env, new_name="auto", output_dir="./cloned_environments", interactive=True):
         """Clone environment using conda-pack (recommended for exact replication)."""
         
         if not self.conda_pack_available:
@@ -243,7 +474,7 @@ class EnvironmentCloner:
         
         # Get environment info
         env_info = self._get_environment_info(old_env)
-        final_name = self._generate_new_name(env_info['name'], new_name)
+        final_name = self._generate_new_name(env_info, new_name, interactive=interactive)
         
         # Create output directory
         os.makedirs(output_dir, exist_ok=True)
@@ -314,14 +545,14 @@ class EnvironmentCloner:
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"conda-pack failed: {e}")
     
-    def clone_with_yaml(self, old_env, new_name="auto", output_dir="./exported_environments"):
+    def clone_with_yaml(self, old_env, new_name="auto", output_dir="./exported_environments", interactive=True):
         """Clone environment using YAML export/import (cross-platform compatible)."""
         
         print(f"[YAML] Cloning environment with YAML...")
         
         # Get environment info
         env_info = self._get_environment_info(old_env)
-        final_name = self._generate_new_name(env_info['name'], new_name)
+        final_name = self._generate_new_name(env_info, new_name, interactive=interactive)
         
         # Create output directory
         os.makedirs(output_dir, exist_ok=True)
@@ -370,7 +601,7 @@ class EnvironmentCloner:
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"YAML export failed: {e}")
     
-    def clone_environment(self, old_env, new_name="auto", method="auto", output_dir=None):
+    def clone_environment(self, old_env, new_name="auto", method="auto", output_dir=None, interactive=True):
         """
         Clone an environment using the best available method.
         
@@ -378,7 +609,8 @@ class EnvironmentCloner:
             old_env: Environment name or path
             new_name: New environment name ("auto" for smart naming)
             method: "conda-pack", "yaml", or "auto"
-            output_dir: Output directory (method-specific default if None)
+            output_dir: Output directory (None for default)
+            interactive: Whether to show interactive naming options (default: True)
         """
         
         print(f"[ANALYZE] Analyzing environment: {old_env}")
@@ -405,9 +637,9 @@ class EnvironmentCloner:
         
         # Execute cloning
         if method == "conda-pack":
-            return self.clone_with_conda_pack(old_env, new_name, output_dir)
+            return self.clone_with_conda_pack(old_env, new_name, output_dir, interactive)
         elif method == "yaml":
-            return self.clone_with_yaml(old_env, new_name, output_dir)
+            return self.clone_with_yaml(old_env, new_name, output_dir, interactive)
         else:
             raise ValueError(f"Unknown method: {method}")
     
@@ -472,7 +704,7 @@ class EnvironmentCloner:
             pass  # If version detection fails, continue without versions
         
         # Generate final name using the same logic as other methods
-        final_name = self._generate_new_name(env_info['name'], new_name)
+        final_name = self._generate_new_name(env_info, new_name, interactive=False)
         
         print(f"[UNPACK] Unpacking {archive_path} as '{final_name}'...")
         if env_info['python_version']:
@@ -607,6 +839,8 @@ def main():
     clone_parser.add_argument("--method", choices=["conda-pack", "yaml", "auto"], 
                              default="auto", help="Cloning method")
     clone_parser.add_argument("--output-dir", help="Output directory")
+    clone_parser.add_argument("--non-interactive", action="store_true",
+                             help="Disable interactive naming (use auto-generated names)")
     
     # Unpack command
     unpack_parser = subparsers.add_parser("unpack", help="Unpack a conda-pack archive")
@@ -653,7 +887,8 @@ def main():
                 args.old_env, 
                 args.new_name, 
                 args.method, 
-                args.output_dir
+                args.output_dir,
+                interactive=not args.non_interactive
             )
             print(f"\n[COMPLETE] Clone operation completed: {result}")
             
