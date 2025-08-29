@@ -133,7 +133,7 @@ class EnvironmentCloner:
                 break
         
         # Detect key packages for enhanced naming
-        key_packages = self._detect_key_packages(env_info)
+        key_packages, package_versions = self._detect_key_packages(env_info)
         
         # Build version and package suffixes
         name_parts = [base_name]
@@ -166,8 +166,10 @@ class EnvironmentCloner:
                 print(f"  Python: {env_info['python_version']}")
             if env_info.get('r_version'):
                 print(f"  R: {env_info['r_version']}")
-            if key_packages:
-                print(f"  Key packages: {', '.join(key_packages)}")
+            if package_versions:
+                print(f"  Key packages detected:")
+                for pkg, version in list(package_versions.items())[:3]:  # Show top 3
+                    print(f"    - {pkg}: {version}")
             
             print(f"  Auto-generated name: {auto_name}")
             
@@ -185,6 +187,7 @@ class EnvironmentCloner:
     def _detect_key_packages(self, env_info):
         """Detect key/important packages in the environment for naming with version support."""
         key_packages = []
+        package_versions = {}  # Store original version info for display
         
         # Load user-configurable package indicators
         package_indicators = self._load_package_config()
@@ -214,6 +217,8 @@ class EnvironmentCloner:
                     if include_version and version:
                         formatted_version = self._format_version(version, version_format)
                         if formatted_version:
+                            # Store original version for display
+                            package_versions[indicator] = version
                             # Use cleaner version format for naming
                             clean_version = formatted_version.replace('.', '')
                             # Handle special cases for cleaner names
@@ -226,10 +231,13 @@ class EnvironmentCloner:
                         else:
                             key_packages.append(indicator)
                     else:
+                        # Store that package exists but no version included
+                        if version:
+                            package_versions[indicator] = version
                         key_packages.append(indicator)
                     break
         
-        return key_packages
+        return key_packages, package_versions
     
     def _load_package_config(self):
         """Load package configuration from config file or use defaults."""
@@ -569,37 +577,128 @@ class EnvironmentCloner:
                     '--no-builds'  # Remove build strings for better compatibility
                 ], stdout=f, check=True)
             
-            # Update name in YAML file
+            # Update name in YAML file and make it more flexible
             with open(yaml_path, 'r') as f:
                 content = f.read()
             
             content = re.sub(r'^name:.*$', f'name: {final_name}', content, flags=re.MULTILINE)
+            
+            # Create a more flexible version of the YAML by relaxing constraints
+            flexible_yaml_path = yaml_path.replace('.yml', '_flexible.yml')
+            self._create_flexible_yaml(yaml_path, flexible_yaml_path)
             
             with open(yaml_path, 'w') as f:
                 f.write(content)
             
             print("[SUCCESS] YAML exported successfully!")
             print(f"[FILE] YAML file: {yaml_path}")
+            print(f"[FILE] Flexible YAML: {flexible_yaml_path}")
             
             # Optionally create the environment immediately
             create_now = input(f"\n[?] Create environment '{final_name}' now? (y/N): ").strip().lower()
             
             if create_now == 'y':
                 print(f"[CREATE] Creating environment {final_name}...")
+                success = False
+                
+                # Try original YAML first
                 try:
                     subprocess.run([
                         self.conda_cmd, 'env', 'create',
                         '-f', yaml_path
                     ], check=True)
                     print(f"[SUCCESS] Environment '{final_name}' created successfully!")
+                    success = True
                 except subprocess.CalledProcessError as e:
-                    print(f"[FAIL] Failed to create environment: {e}")
-                    print(f"[TIP] You can try later with: {self.conda_cmd} env create -f {yaml_path}")
+                    print(f"[WARN] Original YAML failed: {e}")
+                    print("[INFO] Trying with flexible dependency versions...")
+                    
+                    # Try flexible version
+                    try:
+                        subprocess.run([
+                            self.conda_cmd, 'env', 'create',
+                            '-f', flexible_yaml_path
+                        ], check=True)
+                        print(f"[SUCCESS] Environment '{final_name}' created with flexible dependencies!")
+                        success = True
+                    except subprocess.CalledProcessError as e2:
+                        print(f"[FAIL] Both attempts failed: {e2}")
+                        print(f"[TIP] You can manually edit and try: {self.conda_cmd} env create -f {flexible_yaml_path}")
+                        print("[TIP] Consider removing problematic packages or updating dependency versions")
             
             return yaml_path
             
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"YAML export failed: {e}")
+    
+    def _create_flexible_yaml(self, original_yaml, flexible_yaml):
+        """Create a more flexible version of the YAML file with relaxed dependencies."""
+        try:
+            with open(original_yaml, 'r') as f:
+                content = f.read()
+            
+            lines = content.split('\n')
+            flexible_lines = []
+            
+            for line in lines:
+                # Copy header sections as-is
+                if line.startswith('name:') or line.startswith('channels:') or line.startswith('dependencies:') or line.startswith('prefix:') or not line.strip():
+                    flexible_lines.append(line)
+                    continue
+                
+                # Process dependency lines
+                if line.strip().startswith('- ') and '=' in line:
+                    # Extract package name and relax version constraints
+                    package_spec = line.strip()[2:]  # Remove '- '
+                    
+                    # Handle pip dependencies differently
+                    if package_spec.startswith('pip:'):
+                        flexible_lines.append(line)
+                        continue
+                    
+                    # For conda packages, relax version constraints
+                    if '=' in package_spec:
+                        package_name = package_spec.split('=')[0]
+                        version_part = package_spec.split('=')[1]
+                        
+                        # Skip these problematic system packages that often cause conflicts
+                        skip_packages = ['libgcc-ng', 'libstdcxx-ng', '_libgcc_mutex', '_openmp_mutex', 
+                                       'ld_impl_linux-64', 'libgomp', 'libgcc', 'glibc']
+                        
+                        if any(skip_pkg in package_name for skip_pkg in skip_packages):
+                            continue
+                        
+                        # For other packages, try to relax version constraints
+                        if '.' in version_part:
+                            # For version like 1.2.3, use >=1.2,<2.0
+                            major_minor = '.'.join(version_part.split('.')[0:2])
+                            major = version_part.split('.')[0]
+                            try:
+                                next_major = str(int(major) + 1)
+                                flexible_spec = f"- {package_name}>={major_minor},<{next_major}.0"
+                            except ValueError:
+                                # If major version is not numeric, just use major.minor
+                                flexible_spec = f"- {package_name}>={major_minor}"
+                        else:
+                            # Single version number, just use >= constraint
+                            flexible_spec = f"- {package_name}>={version_part}"
+                        
+                        flexible_lines.append(flexible_spec)
+                    else:
+                        # No version specified, keep as-is
+                        flexible_lines.append(line)
+                else:
+                    # Copy other lines as-is
+                    flexible_lines.append(line)
+            
+            # Write flexible YAML
+            with open(flexible_yaml, 'w') as f:
+                f.write('\n'.join(flexible_lines))
+                
+        except Exception as e:
+            print(f"[WARN] Could not create flexible YAML: {e}")
+            # If flexible YAML creation fails, just copy the original
+            shutil.copy2(original_yaml, flexible_yaml)
     
     def clone_environment(self, old_env, new_name="auto", method="auto", output_dir=None, interactive=True):
         """
