@@ -25,7 +25,7 @@ import yaml
 from colorama import init, Fore, Style
 
 # Import the new YAML analyzer
-from yaml_analyzer import YAMLAnalyzer
+from scripts.yaml_analyzer import YAMLAnalyzer
 
 # Import new utilities
 try:

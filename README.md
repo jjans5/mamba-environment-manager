@@ -9,7 +9,7 @@ A comprehensive Python tool for managing mamba/conda environments with automated
 python environment_manager.py
 
 # Batch processing mode
-python batch_process.py
+python scripts/batch_process.py
 
 # Environment cloning tool
 python utils/environment_cloner.py
@@ -24,15 +24,17 @@ The environment manager features a **user-centric workflow** designed around com
 
 ```
 Environment Management Options:
-1. 📦 Backup environment (preserve original)
-2. 🔄 Clone environment (backup + rename/recreate)  
-3. 📊 Analyze exported YAML files for duplicates
-4. ⚡ Batch processing (multiple environments)
-5. 🐛 Debug and analyze failures
-6. 🔬 Recreate Jupyter kernels
-7. 📋 List all environments
-8. 🧹 Clean up backup files (YAML/conda-pack)
-9. ❌ Exit
+1. [BACKUP] Backup environment (preserve original)
+2. [CLONE]  Clone environment (backup + rename/recreate)
+3. [UNPACK] Unpack conda-pack archive to environment
+4. [ANALYZE] Analyze exported YAML files for duplicates
+5. [BATCH]  Batch processing (multiple environments)
+6. [DEBUG]  Debug and analyze failures
+7. [KERNEL] Create Jupyter kernels
+8. [DELETE] Delete environments
+9. [LIST]   List all environments
+10. [CLEAN] Clean up backup files (YAML/conda-pack)
+11. [EXIT]  Exit
 ```
 
 ### Key Workflow Improvements
@@ -42,12 +44,51 @@ Environment Management Options:
 - **🔧 Method Choice**: YAML vs conda-pack for each operation
 - **🤖 Smart Naming**: Auto-naming option throughout
 - **📊 Batch Operations**: Process multiple environments efficiently
+- **🗑️ Safe Deletion**: Multi-confirmation environment deletion with list input
+- **🔬 Enhanced Kernels**: Create Jupyter kernels with list input support
 
-## Project Structure
+## 📁 Project Structure
 
 ```
-├── environment_manager.py         # Main environment management tool with new UI
-├── yaml_analyzer.py              # YAML file analysis and cleanup utility
+├── environment_manager.py         # Main environment management tool
+├── requirements.txt               # Python dependencies
+├── README.md                      # This file
+│
+├── 📁 scripts/                    # Utility scripts
+│   ├── batch_process.py           # Batch processing script
+│   ├── package_config.py          # Package configuration
+│   ├── yaml_analyzer.py           # YAML file analysis utility
+│   └── yaml_conflict_solver.py    # YAML conflict resolution
+│
+├── 📁 utils/                      # Core utilities
+│   ├── environment_cloner.py      # Enhanced environment cloning
+│   ├── simple_log_analyzer.py     # Log analysis and debugging
+│   ├── config_template.py         # Configuration templates
+│   └── ...                        # Other utility modules
+│
+├── 📁 tests/                      # Test suite
+│   ├── test_manager.py            # Main manager tests
+│   ├── test_enhanced_cloning.py   # Cloning tests
+│   ├── test_smart_naming.py       # Naming tests
+│   └── ...                        # Other test files
+│
+├── 📁 demos/                      # Demo scripts
+│   ├── demo_enhanced_cloning.py   # Cloning demo
+│   ├── demo_environment_deletion.py # Deletion demo
+│   ├── demo_kernel_list_input.py  # Kernel creation demo
+│   └── ...                        # Other demos
+│
+├── 📁 documentation/              # Documentation
+│   ├── ENHANCED_CLONING_SUMMARY.md
+│   ├── ENVIRONMENT_DELETION_SUMMARY.md
+│   ├── KERNEL_LIST_INPUT_SUMMARY.md
+│   └── ...                        # Other documentation
+│
+├── 📁 backup_environments/        # YAML backups and logs
+├── 📁 exported_environments/      # Exported YAML files
+├── 📁 cloned_environments/        # Conda-pack archives
+├── 📁 logs/                       # Log files
+└── 📁 docs/                       # Additional documentation
 ├── batch_process.py              # Batch processing script
 ├── README.md                     # This documentation
 ├── requirements.txt              # Python dependencies

@@ -255,10 +255,10 @@ class EnvironmentCloner:
     def _load_package_config(self):
         """Load package configuration from config file or use defaults."""
         try:
-            # Try to load from package_config.py in the parent directory
+            # Try to load from package_config.py in the scripts directory
             import sys
             import os
-            config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'package_config.py')
+            config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'scripts', 'package_config.py')
             
             if os.path.exists(config_path):
                 # Load the config file

@@ -77,3 +77,30 @@ cloned_environments/*.zip
 *.tmp
 *.bak
 *.backup
+
+# Log files and runtime directories
+logs/*.log
+*.log
+backup_environments/*.log
+exported_environments/*.log
+
+# Temporary conda/mamba files
+.conda/
+.mamba/
+.cache/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Virtual environment
+venv/
+env/
+.env
