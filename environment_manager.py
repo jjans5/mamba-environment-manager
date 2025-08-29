@@ -1395,7 +1395,7 @@ class EnvironmentManager:
             print("4. [ANALYZE] Analyze exported YAML files for duplicates")
             print("5. [BATCH]  Batch processing (multiple environments)")
             print("6. [DEBUG]  Debug and analyze failures")
-            print("7. [KERNEL] Recreate Jupyter kernels")
+            print("7. [KERNEL] Create Jupyter kernels")
             print("8. [LIST]   List all environments")
             print("9. [CLEAN]  Clean up backup files (YAML/conda-pack)")
             print("10. [EXIT]   Exit")
@@ -1622,12 +1622,13 @@ class EnvironmentManager:
 
     def _handle_recreate_kernels(self):
         """Handle Jupyter kernel recreation"""
-        print(f"\n{Fore.CYAN}=== 🔬 Recreate Jupyter Kernels ==={Style.RESET_ALL}")
-        print("1. Recreate kernels for all environments")
+        print(f"\n{Fore.CYAN}=== 🔬 Create Jupyter Kernels ==={Style.RESET_ALL}")
+        print("1. Create kernels for all environments")
         print("2. Select specific environments")
-        print("3. Back to main menu")
+        print("3. Select by environment numbers (list input)")
+        print("4. Back to main menu")
         
-        choice = input("\nEnter your choice (1-3): ").strip()
+        choice = input("\nEnter your choice (1-4): ").strip()
         
         if choice == "1":
             self.recreate_jupyter_kernels()
@@ -1636,9 +1637,137 @@ class EnvironmentManager:
             if environments:
                 self._handle_kernel_recreation_selected(environments)
         elif choice == "3":
+            self._handle_kernel_recreation_by_numbers()
+        elif choice == "4":
             return
         else:
             print(f"{Fore.RED}Invalid choice!{Style.RESET_ALL}")
+
+    def _handle_kernel_recreation_by_numbers(self):
+        """Handle kernel creation using list input format [1,2,3]"""
+        print(f"\n{Fore.CYAN}=== 🔄 Create Jupyter Kernels (List Input) ==={Style.RESET_ALL}")
+        
+        environments = self._get_environments_for_processing()
+        if not environments:
+            print(f"{Fore.YELLOW}No environments found!{Style.RESET_ALL}")
+            return
+        
+        # Display environments with numbers
+        print(f"\n{Fore.GREEN}Available environments:{Style.RESET_ALL}")
+        for i, env_info in enumerate(environments, 1):
+            env_name = env_info['name']
+            has_python = self._environment_has_python(env_info['path'])
+            has_r = self._environment_has_r(env_info['path'])
+            kernel_types = []
+            if has_python:
+                kernel_types.append("Python")
+            if has_r:
+                kernel_types.append("R")
+            kernel_info = ", ".join(kernel_types) if kernel_types else "No kernels"
+            print(f"  {i:2d}. {env_name} ({kernel_info})")
+        
+        # Get list input
+        print(f"\n{Fore.CYAN}Enter environment numbers as a list:{Style.RESET_ALL}")
+        print("Examples: [1,3,5] or [2,4-7] or [1,3,5-8]")
+        
+        try:
+            user_input = input("Environment numbers: ").strip()
+            if not user_input:
+                print(f"{Fore.YELLOW}No input provided{Style.RESET_ALL}")
+                return
+            
+            # Parse list format [1,2,3] or [1,3-5]
+            if user_input.startswith('[') and user_input.endswith(']'):
+                number_str = user_input[1:-1]
+            else:
+                number_str = user_input
+            
+            # Parse numbers and ranges
+            selected_numbers = []
+            for part in number_str.split(','):
+                part = part.strip()
+                if '-' in part:
+                    # Handle range like 3-5
+                    start, end = map(int, part.split('-'))
+                    selected_numbers.extend(range(start, end + 1))
+                else:
+                    # Handle single number
+                    selected_numbers.append(int(part))
+            
+            # Validate numbers and get environment names
+            selected_envs = []
+            for num in sorted(set(selected_numbers)):
+                if 1 <= num <= len(environments):
+                    selected_envs.append(environments[num - 1]['name'])
+                else:
+                    print(f"{Fore.YELLOW}Warning: Number {num} is out of range{Style.RESET_ALL}")
+            
+            if not selected_envs:
+                print(f"{Fore.YELLOW}No valid environments selected{Style.RESET_ALL}")
+                return
+            
+            # Ask for kernel type
+            print(f"\n{Fore.CYAN}Select kernel types to create:{Style.RESET_ALL}")
+            print("1. Python kernels only")
+            print("2. R kernels only") 
+            print("3. Both Python and R kernels (if available)")
+            
+            kernel_choice = input("Choice (1-3): ").strip()
+            
+            create_python = kernel_choice in ['1', '3']
+            create_r = kernel_choice in ['2', '3']
+            
+            if not (create_python or create_r):
+                print(f"{Fore.YELLOW}No kernel type selected{Style.RESET_ALL}")
+                return
+            
+            # Show preview and filter environments
+            print(f"\n{Fore.GREEN}Preview - Will create kernels for:{Style.RESET_ALL}")
+            final_envs = []
+            for env_name in selected_envs:
+                env_info = next((e for e in environments if e['name'] == env_name), None)
+                if not env_info:
+                    continue
+                    
+                has_python = self._environment_has_python(env_info['path'])
+                has_r = self._environment_has_r(env_info['path'])
+                
+                will_create = []
+                if create_python and has_python:
+                    will_create.append("Python")
+                if create_r and has_r:
+                    will_create.append("R")
+                
+                if will_create:
+                    final_envs.append(env_name)
+                    for kernel_type in will_create:
+                        print(f"  • {kernel_type} kernel: {kernel_type} ({env_name})")
+                else:
+                    print(f"  • {env_name}: No compatible kernels found")
+            
+            if not final_envs:
+                print(f"{Fore.YELLOW}No compatible environments found for selected kernel types{Style.RESET_ALL}")
+                return
+            
+            # Confirm
+            confirm = input(f"\n{Fore.YELLOW}Proceed? (y/N): {Style.RESET_ALL}").strip().lower()
+            if confirm != 'y':
+                print("Cancelled")
+                return
+            
+            # Create kernels using the existing method
+            print(f"\n{Fore.CYAN}Creating kernels...{Style.RESET_ALL}")
+            success = self.recreate_jupyter_kernels(final_envs)
+            
+            if success:
+                print(f"\n{Fore.GREEN}✅ Kernel creation completed!{Style.RESET_ALL}")
+            else:
+                print(f"\n{Fore.YELLOW}⚠️  Kernel creation completed with some issues{Style.RESET_ALL}")
+            
+        except ValueError as e:
+            print(f"{Fore.RED}Invalid number format: {e}{Style.RESET_ALL}")
+        except Exception as e:
+            print(f"{Fore.RED}Error: {e}{Style.RESET_ALL}")
 
     def _handle_cleanup_files(self):
         """Handle cleanup of backup files"""
