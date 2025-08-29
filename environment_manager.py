@@ -1396,11 +1396,12 @@ class EnvironmentManager:
             print("5. [BATCH]  Batch processing (multiple environments)")
             print("6. [DEBUG]  Debug and analyze failures")
             print("7. [KERNEL] Create Jupyter kernels")
-            print("8. [LIST]   List all environments")
-            print("9. [CLEAN]  Clean up backup files (YAML/conda-pack)")
-            print("10. [EXIT]   Exit")
+            print("8. [DELETE] Delete environments")
+            print("9. [LIST]   List all environments")
+            print("10. [CLEAN]  Clean up backup files (YAML/conda-pack)")
+            print("11. [EXIT]   Exit")
             
-            choice = input(f"\n{Fore.CYAN}Enter your choice (1-9): {Style.RESET_ALL}").strip()
+            choice = input(f"\n{Fore.CYAN}Enter your choice (1-11): {Style.RESET_ALL}").strip()
             
             if choice == "1":
                 self._handle_backup_environment()
@@ -1417,17 +1418,19 @@ class EnvironmentManager:
             elif choice == "7":
                 self._handle_recreate_kernels()
             elif choice == "8":
-                self._handle_list_environments()
+                self._handle_delete_environments()
             elif choice == "9":
-                self._handle_cleanup_files()
+                self._handle_list_environments()
             elif choice == "10":
+                self._handle_cleanup_files()
+            elif choice == "11":
                 print("👋 Goodbye!")
                 break
             else:
-                print(f"{Fore.RED}Invalid choice! Please enter 1-10.{Style.RESET_ALL}")
+                print(f"{Fore.RED}Invalid choice! Please enter 1-11.{Style.RESET_ALL}")
                 
             # Ask if user wants to continue
-            if choice != "10":
+            if choice != "11":
                 continue_choice = input(f"\n{Fore.CYAN}Continue with another operation? (Y/n): {Style.RESET_ALL}").strip().lower()
                 if continue_choice in ['n', 'no']:
                     print("Goodbye!")
@@ -1768,6 +1771,153 @@ class EnvironmentManager:
             print(f"{Fore.RED}Invalid number format: {e}{Style.RESET_ALL}")
         except Exception as e:
             print(f"{Fore.RED}Error: {e}{Style.RESET_ALL}")
+
+    def _handle_delete_environments(self):
+        """Handle environment deletion with list input support"""
+        print(f"\n{Fore.CYAN}=== 🗑️  Delete Environments ==={Style.RESET_ALL}")
+        
+        environments = self._get_environments_for_processing()
+        if not environments:
+            print(f"{Fore.YELLOW}No environments found!{Style.RESET_ALL}")
+            return
+        
+        # Filter out base environment for safety
+        safe_environments = [env for env in environments if env['name'] not in ['base', 'root']]
+        if not safe_environments:
+            print(f"{Fore.YELLOW}No deletable environments found (base/root environments are protected)!{Style.RESET_ALL}")
+            return
+        
+        # Display environments with numbers
+        print(f"\n{Fore.GREEN}Available environments for deletion:{Style.RESET_ALL}")
+        print(f"{Fore.RED}⚠️  WARNING: Deletion is permanent and cannot be undone!{Style.RESET_ALL}")
+        
+        for i, env_info in enumerate(safe_environments, 1):
+            env_name = env_info['name']
+            env_path = env_info['path']
+            python_version = env_info.get('python_version', 'Unknown')
+            print(f"  {i:2d}. {env_name} (Python {python_version}) - {env_path}")
+        
+        # Get list input
+        print(f"\n{Fore.CYAN}Enter environment numbers to delete:{Style.RESET_ALL}")
+        print("Examples: [1,3,5] or [2,4-7] or [1,3,5-8]")
+        print(f"{Fore.YELLOW}⚠️  Use caution - this will permanently delete the selected environments!{Style.RESET_ALL}")
+        
+        try:
+            user_input = input("Environment numbers: ").strip()
+            if not user_input:
+                print(f"{Fore.YELLOW}No input provided - cancelling deletion{Style.RESET_ALL}")
+                return
+            
+            # Parse list format [1,2,3] or [1,3-5]
+            if user_input.startswith('[') and user_input.endswith(']'):
+                number_str = user_input[1:-1]
+            else:
+                number_str = user_input
+            
+            # Parse numbers and ranges
+            selected_numbers = []
+            for part in number_str.split(','):
+                part = part.strip()
+                if '-' in part:
+                    # Handle range like 3-5
+                    start, end = map(int, part.split('-'))
+                    selected_numbers.extend(range(start, end + 1))
+                else:
+                    # Handle single number
+                    selected_numbers.append(int(part))
+            
+            # Validate numbers and get environment names
+            selected_envs = []
+            for num in sorted(set(selected_numbers)):
+                if 1 <= num <= len(safe_environments):
+                    selected_envs.append(safe_environments[num - 1]['name'])
+                else:
+                    print(f"{Fore.YELLOW}Warning: Number {num} is out of range{Style.RESET_ALL}")
+            
+            if not selected_envs:
+                print(f"{Fore.YELLOW}No valid environments selected{Style.RESET_ALL}")
+                return
+            
+            # Show what will be deleted
+            print(f"\n{Fore.RED}⚠️  DANGER: The following environments will be PERMANENTLY DELETED:{Style.RESET_ALL}")
+            for env_name in selected_envs:
+                env_info = next((e for e in safe_environments if e['name'] == env_name), None)
+                if env_info:
+                    print(f"  🗑️  {env_name} - {env_info['path']}")
+            
+            # Double confirmation
+            print(f"\n{Fore.RED}This action cannot be undone!{Style.RESET_ALL}")
+            confirm1 = input(f"{Fore.YELLOW}Type 'DELETE' to confirm deletion: {Style.RESET_ALL}").strip()
+            if confirm1 != 'DELETE':
+                print("Deletion cancelled - confirmation failed")
+                return
+            
+            confirm2 = input(f"{Fore.YELLOW}Are you absolutely sure? (yes/NO): {Style.RESET_ALL}").strip().lower()
+            if confirm2 != 'yes':
+                print("Deletion cancelled - final confirmation failed")
+                return
+            
+            # Perform deletion
+            print(f"\n{Fore.CYAN}Deleting environments...{Style.RESET_ALL}")
+            deleted_count = 0
+            failed_count = 0
+            
+            for env_name in selected_envs:
+                try:
+                    print(f"\n🗑️  Deleting environment: {env_name}")
+                    success = self._delete_environment(env_name)
+                    if success:
+                        print(f"  ✅ Successfully deleted {env_name}")
+                        deleted_count += 1
+                    else:
+                        print(f"  ❌ Failed to delete {env_name}")
+                        failed_count += 1
+                except Exception as e:
+                    print(f"  ❌ Error deleting {env_name}: {e}")
+                    failed_count += 1
+            
+            # Summary
+            print(f"\n{Fore.CYAN}=== Deletion Summary ==={Style.RESET_ALL}")
+            print(f"✅ Successfully deleted: {deleted_count} environments")
+            if failed_count > 0:
+                print(f"❌ Failed to delete: {failed_count} environments")
+            
+            if deleted_count > 0:
+                print(f"\n{Fore.GREEN}🎉 Environment deletion completed!{Style.RESET_ALL}")
+            else:
+                print(f"\n{Fore.YELLOW}⚠️  No environments were deleted{Style.RESET_ALL}")
+            
+        except ValueError as e:
+            print(f"{Fore.RED}Invalid number format: {e}{Style.RESET_ALL}")
+        except Exception as e:
+            print(f"{Fore.RED}Error: {e}{Style.RESET_ALL}")
+
+    def _delete_environment(self, env_name: str) -> bool:
+        """Delete a conda/mamba environment"""
+        try:
+            # Use conda/mamba remove command
+            cmd = [self.cmd_base, 'env', 'remove', '--name', env_name, '--yes']
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=300  # 5 minute timeout
+            )
+            
+            if result.returncode == 0:
+                self.logger.info(f"Successfully deleted environment: {env_name}")
+                return True
+            else:
+                self.logger.error(f"Failed to delete environment {env_name}: {result.stderr}")
+                return False
+                
+        except subprocess.TimeoutExpired:
+            self.logger.error(f"Timeout while deleting environment: {env_name}")
+            return False
+        except Exception as e:
+            self.logger.error(f"Error deleting environment {env_name}: {e}")
+            return False
 
     def _handle_cleanup_files(self):
         """Handle cleanup of backup files"""
