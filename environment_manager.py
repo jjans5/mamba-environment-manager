@@ -82,18 +82,99 @@ class EnvironmentManager:
     
     def _verify_tool_availability(self):
         """Verify that mamba or conda is available"""
+        # Try the direct command first
         try:
             result = subprocess.run([self.cmd_base, "--version"], 
                                   capture_output=True, text=True, check=True)
             self.logger.info(f"{self.cmd_base} version: {result.stdout.strip()}")
+            return
         except (subprocess.CalledProcessError, FileNotFoundError):
-            if self.use_mamba:
-                self.logger.warning("Mamba not found, falling back to conda")
-                self.cmd_base = "conda"
-                self.use_mamba = False
-                self._verify_tool_availability()
-            else:
-                raise RuntimeError("Neither mamba nor conda found in PATH")
+            pass
+        
+        # If direct command failed, try with shell=True for HPC environments
+        try:
+            result = subprocess.run(f"{self.cmd_base} --version", 
+                                  capture_output=True, text=True, check=True, shell=True)
+            self.logger.info(f"{self.cmd_base} version (via shell): {result.stdout.strip()}")
+            return
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pass
+        
+        # If mamba failed, try conda
+        if self.use_mamba:
+            self.logger.warning("Mamba not found, falling back to conda")
+            self.cmd_base = "conda"
+            self.use_mamba = False
+            self._verify_tool_availability()
+        else:
+            # Try to find conda/mamba through environment variables
+            import glob
+            import os
+            conda_paths = []
+            
+            # Check common environment variables
+            conda_env_vars = ["CONDA_EXE", "MAMBA_EXE", "CONDA_PREFIX", "CONDA_DEFAULT_ENV"]
+            for var in conda_env_vars:
+                env_val = os.environ.get(var)
+                if env_val:
+                    if var in ["CONDA_EXE", "MAMBA_EXE"]:
+                        conda_paths.append(env_val)
+                    elif var in ["CONDA_PREFIX"]:
+                        # Look for conda/mamba in the bin directory
+                        conda_paths.extend([
+                            os.path.join(env_val, "bin", "conda"),
+                            os.path.join(env_val, "bin", "mamba"),
+                            os.path.join(os.path.dirname(env_val), "bin", "conda"),
+                            os.path.join(os.path.dirname(env_val), "bin", "mamba")
+                        ])
+            
+            # Check if any of these paths work
+            for path in conda_paths:
+                if os.path.exists(path):
+                    try:
+                        result = subprocess.run([path, "--version"], 
+                                      capture_output=True, text=True, check=True)
+                        tool_name = "mamba" if "mamba" in path else "conda"
+                        self.cmd_base = path
+                        self.use_mamba = "mamba" in path
+                        self.logger.info(f"Found {tool_name} via environment variable at {path}: {result.stdout.strip()}")
+                        return
+                    except (subprocess.CalledProcessError, FileNotFoundError):
+                        continue
+            
+            # Last resort: check if we can find conda/mamba through common paths
+            common_paths = [
+                "/opt/conda/bin/conda",
+                "/opt/miniconda/bin/conda", 
+                "/cluster/*/conda/bin/conda",
+                "/cluster/*/miniforge*/bin/conda",
+                "/cluster/*/miniforge*/bin/mamba",
+                "~/miniconda*/bin/conda",
+                "~/miniforge*/bin/conda",
+                "~/miniforge*/bin/mamba"
+            ]
+            
+            for path_pattern in common_paths:
+                try:
+                    # Expand wildcards and home directory
+                    expanded_paths = glob.glob(os.path.expanduser(path_pattern))
+                    for path in expanded_paths:
+                        if os.path.exists(path):
+                            try:
+                                result = subprocess.run([path, "--version"], 
+                                              capture_output=True, text=True, check=True)
+                                tool_name = "mamba" if "mamba" in path else "conda"
+                                self.cmd_base = path
+                                self.use_mamba = "mamba" in path
+                                self.logger.info(f"Found {tool_name} at {path}: {result.stdout.strip()}")
+                                return
+                            except (subprocess.CalledProcessError, FileNotFoundError):
+                                continue
+                except:
+                    continue
+            
+            raise RuntimeError("Neither mamba nor conda found in PATH or common locations. "
+                             "Please ensure conda/mamba is properly installed and accessible.")
     
     def _run_command(self, cmd: List[str], check: bool = True) -> subprocess.CompletedProcess:
         """
@@ -108,11 +189,24 @@ class EnvironmentManager:
         """
         try:
             self.logger.debug(f"Running command: {' '.join(cmd)}")
-            result = subprocess.run(cmd, capture_output=True, text=True, check=check)
-            if result.returncode != 0 and check:
-                self.logger.error(f"Command failed: {' '.join(cmd)}")
-                self.logger.error(f"Error output: {result.stderr}")
-            return result
+            
+            # Try direct execution first
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, check=check)
+                if result.returncode != 0 and check:
+                    self.logger.error(f"Command failed: {' '.join(cmd)}")
+                    self.logger.error(f"Error output: {result.stderr}")
+                return result
+            except FileNotFoundError:
+                # If direct execution fails, try with shell=True for HPC environments
+                cmd_str = ' '.join(cmd)
+                self.logger.debug(f"Direct execution failed, trying with shell: {cmd_str}")
+                result = subprocess.run(cmd_str, capture_output=True, text=True, check=check, shell=True)
+                if result.returncode != 0 and check:
+                    self.logger.error(f"Command failed: {cmd_str}")
+                    self.logger.error(f"Error output: {result.stderr}")
+                return result
+                
         except subprocess.CalledProcessError as e:
             self.logger.error(f"Command failed with exit code {e.returncode}: {' '.join(cmd)}")
             self.logger.error(f"Error output: {e.stderr}")
@@ -120,6 +214,18 @@ class EnvironmentManager:
         except Exception as e:
             self.logger.error(f"Unexpected error running command: {e}")
             raise
+    
+    def _build_conda_command(self, subcommand: List[str]) -> List[str]:
+        """
+        Build a conda/mamba command with proper base command
+        
+        Args:
+            subcommand: List of arguments after conda/mamba
+            
+        Returns:
+            Complete command as list of strings
+        """
+        return [self.cmd_base] + subcommand
     
     def _run_command_with_progress(self, cmd: List[str], operation_name: str = "Operation"):
         """
