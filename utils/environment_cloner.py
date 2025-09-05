@@ -23,20 +23,95 @@ class EnvironmentCloner:
         self.conda_pack_available = self._check_conda_pack()
     
     def _detect_conda_command(self):
-        """Detect available conda command (mamba preferred)."""
+        """Detect available conda command (mamba preferred) with HPC support."""
+        # Try direct commands first
         for cmd in ['mamba', 'conda']:
             try:
                 subprocess.run([cmd, '--version'], capture_output=True, check=True)
                 return cmd
             except (subprocess.CalledProcessError, FileNotFoundError):
                 continue
-        raise RuntimeError("Neither mamba nor conda found in PATH")
+        
+        # Try with shell=True for HPC environments
+        for cmd in ['mamba', 'conda']:
+            try:
+                subprocess.run(f"{cmd} --version", capture_output=True, check=True, shell=True)
+                return cmd
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                continue
+        
+        # Try to find conda/mamba through environment variables
+        import os
+        import glob
+        
+        conda_paths = []
+        conda_env_vars = ["CONDA_EXE", "MAMBA_EXE", "CONDA_PREFIX", "CONDA_DEFAULT_ENV"]
+        for var in conda_env_vars:
+            env_val = os.environ.get(var)
+            if env_val:
+                if var in ["CONDA_EXE", "MAMBA_EXE"]:
+                    conda_paths.append(env_val)
+                elif var in ["CONDA_PREFIX"]:
+                    conda_paths.extend([
+                        os.path.join(env_val, "bin", "conda"),
+                        os.path.join(env_val, "bin", "mamba"),
+                        os.path.join(os.path.dirname(env_val), "bin", "conda"),
+                        os.path.join(os.path.dirname(env_val), "bin", "mamba")
+                    ])
+        
+        # Check environment variable paths
+        for path in conda_paths:
+            if os.path.exists(path):
+                try:
+                    subprocess.run([path, "--version"], capture_output=True, check=True)
+                    return path
+                except (subprocess.CalledProcessError, FileNotFoundError):
+                    continue
+        
+        # Search common installation paths
+        common_patterns = [
+            "/opt/conda/bin/conda",
+            "/opt/miniconda/bin/conda",
+            "/cluster/*/conda/bin/conda",
+            "/cluster/*/miniforge*/bin/conda",
+            "/cluster/*/miniforge*/bin/mamba",
+            "~/miniconda*/bin/conda",
+            "~/miniforge*/bin/conda",
+            "~/miniforge*/bin/mamba"
+        ]
+        
+        for pattern in common_patterns:
+            try:
+                expanded_paths = glob.glob(os.path.expanduser(pattern))
+                for path in expanded_paths:
+                    if os.path.exists(path):
+                        try:
+                            subprocess.run([path, "--version"], capture_output=True, check=True)
+                            return path
+                        except (subprocess.CalledProcessError, FileNotFoundError):
+                            continue
+            except:
+                continue
+        
+        raise RuntimeError("Neither mamba nor conda found in PATH or common locations. "
+                         "Please ensure conda/mamba is properly installed and accessible.")
+
+    def _run_command(self, cmd, check=True):
+        """Run command with HPC compatibility fallback."""
+        try:
+            # Try direct execution first
+            result = subprocess.run(cmd, capture_output=True, text=True, check=check)
+            return result
+        except FileNotFoundError:
+            # If direct execution fails, try with shell=True for HPC environments
+            cmd_str = ' '.join(cmd)
+            result = subprocess.run(cmd_str, capture_output=True, text=True, check=check, shell=True)
+            return result
     
     def _check_conda_pack(self):
         """Check if conda-pack is available."""
         try:
-            result = subprocess.run([self.conda_cmd, 'list', 'conda-pack'], 
-                                  capture_output=True, text=True)
+            result = self._run_command([self.conda_cmd, 'list', 'conda-pack'])
             if result.returncode == 0 and 'conda-pack' in result.stdout:
                 return True
             else:
@@ -56,8 +131,7 @@ class EnvironmentCloner:
             env_name = env_identifier
             # Get environment path
             try:
-                result = subprocess.run([self.conda_cmd, 'env', 'list', '--json'], 
-                                      capture_output=True, text=True, check=True)
+                result = self._run_command([self.conda_cmd, 'env', 'list', '--json'])
                 env_data = json.loads(result.stdout)
                 
                 env_path = None
@@ -78,10 +152,7 @@ class EnvironmentCloner:
         
         # Get package list for version detection
         try:
-            result = subprocess.run(
-                [self.conda_cmd, 'list', '-p', env_path],
-                capture_output=True, text=True, check=True
-            )
+            result = self._run_command([self.conda_cmd, 'list', '-p', env_path])
             packages = result.stdout
         except subprocess.CalledProcessError:
             packages = ""
@@ -505,11 +576,11 @@ class EnvironmentCloner:
         
         # Pack the environment
         try:
-            subprocess.run([
-                'conda', 'pack',
+            self._run_command([
+                self.conda_cmd, 'pack',
                 '-p', env_info['path'],
                 '-o', archive_path
-            ], check=True)
+            ])
             
             print("[SUCCESS] Environment packed successfully!")
             print(f"[FILE] Archive: {archive_path}")
