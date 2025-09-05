@@ -1240,8 +1240,11 @@ class EnvironmentManager:
             # First, try to modify the YAML to use the new name
             self._update_yaml_name(yaml_file, new_name)
             
-            # Use shell command with 'yes |' to handle any potential prompts automatically
-            cmd_str = f"yes | {self.cmd_base} env create -f {yaml_file} -n {new_name}"
+            # Build command using proper method
+            cmd = self._build_conda_command(["env", "create", "-f", str(yaml_file), "-n", new_name])
+            
+            # Convert to shell command string for progress version with logging
+            cmd_str = ' '.join(cmd)
             
             # Prepare log file if requested
             log_file = None
@@ -2354,8 +2357,9 @@ class EnvironmentManager:
     def _create_from_yaml(self, yaml_file, new_name):
         """Create environment from YAML file"""
         try:
-            cmd = f"conda env create -f {yaml_file} -n {new_name}"
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            # Build command using proper method
+            cmd = self._build_conda_command(["env", "create", "-f", str(yaml_file), "-n", new_name])
+            result = self._run_command(cmd)
             
             if result.returncode == 0:
                 print(f"{Fore.GREEN}✅ Created environment '{new_name}'{Style.RESET_ALL}")
@@ -2371,8 +2375,9 @@ class EnvironmentManager:
     def _remove_environment(self, env_name):
         """Remove an environment"""
         try:
-            cmd = f"conda env remove -n {env_name} -y"
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            # Build command using proper method
+            cmd = self._build_conda_command(["env", "remove", "-n", env_name, "-y"])
+            result = self._run_command(cmd)
             
             if result.returncode == 0:
                 print(f"{Fore.GREEN}✅ Removed environment '{env_name}'{Style.RESET_ALL}")
@@ -2495,7 +2500,8 @@ class EnvironmentManager:
         
         # Get basic environment list without heavy processing
         try:
-            result = subprocess.run("conda env list", shell=True, capture_output=True, text=True)
+            cmd = self._build_conda_command(["env", "list"])
+            result = self._run_command(cmd)
             if result.returncode != 0:
                 print(f"{Fore.RED}Failed to get environment list!{Style.RESET_ALL}")
                 return
